@@ -1,0 +1,97 @@
+package com.ultramonitor.stress;
+
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Headless engine tests: start a workload, observe it running, stop it and
+ * verify cleanup. Kept short so the suite stays fast.
+ */
+class StressEngineTest {
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
+    void cpuStressRunsAndStops() {
+        CpuStress cpu = new CpuStress(2);
+        assertFalse(cpu.isRunning());
+        cpu.start();
+        sleep(300);
+        assertTrue(cpu.isRunning());
+        cpu.stop();
+        assertFalse(cpu.isRunning());
+    }
+
+    @Test
+    void memoryStressAllocatesAndFrees() {
+        MemoryStress memory = new MemoryStress(64L * 1024 * 1024); // 64 MB
+        memory.start();
+        sleep(300);
+        assertTrue(memory.isRunning());
+        memory.stop();
+        assertFalse(memory.isRunning());
+    }
+
+    @Test
+    void diskStressDeletesTempFile() throws Exception {
+        DiskStress disk = new DiskStress(64);
+        disk.start();
+        sleep(400);
+        assertTrue(disk.isRunning());
+        disk.stop();
+        assertFalse(disk.isRunning());
+        // no leftover temp files
+        try (var stream = Files.list(Path.of(System.getProperty("java.io.tmpdir")))) {
+            assertTrue(stream.noneMatch(p -> p.getFileName().toString().startsWith("ultramonitor-disk-")));
+        }
+    }
+
+    @Test
+    void gpuStressRunsAndStops() {
+        GpuStress gpu = new GpuStress();
+        gpu.start();
+        sleep(300);
+        assertTrue(gpu.isRunning());
+        gpu.stop();
+        assertFalse(gpu.isRunning());
+    }
+
+    @Test
+    void runnerTracksDurationAndProgress() throws Exception {
+        CpuStress cpu = new CpuStress(1);
+        StressRunner runner = new StressRunner(List.of(cpu));
+        assertTrue(runner.start(1)); // 1 second
+        assertTrue(runner.isRunning());
+        assertTrue(runner.hasDuration());
+        assertFalse(Double.isNaN(runner.progress()));
+        Thread.sleep(1150);
+        assertTrue(runner.isFinishedByTime());
+        assertFalse(runner.start(5), "start must be rejected while running");
+        runner.stop("Duration reached");
+        assertFalse(runner.isRunning());
+        assertEquals("Duration reached", runner.stopReason());
+    }
+
+    @Test
+    void runnerUnlimitedHasNoProgress() {
+        CpuStress cpu = new CpuStress(1);
+        StressRunner runner = new StressRunner(List.of(cpu));
+        runner.start(0);
+        assertTrue(Double.isNaN(runner.progress()));
+        assertFalse(runner.isFinishedByTime());
+        runner.stop("Stopped by user");
+    }
+}
