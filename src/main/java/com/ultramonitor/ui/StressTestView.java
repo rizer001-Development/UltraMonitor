@@ -17,9 +17,6 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.DialogPane;
 import javafx.scene.control.ProgressBar;
 import javafx.stage.FileChooser;
 import javafx.scene.control.Slider;
@@ -31,7 +28,9 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.SVGPath;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -368,30 +367,85 @@ public final class StressTestView {
      * Asks the user to confirm before pushing the hardware to full load.
      * Returns {@code true} when the run should proceed.
      */
+    /**
+     * Asks the user to confirm before pushing the hardware to full load.
+     * Shows a themed frameless dialog (same look as the app windows).
+     * Returns {@code true} when the run should proceed.
+     */
     private boolean confirmStart(List<StressTest> tests, long duration) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Start Stress Test");
-        alert.setHeaderText("Push your hardware to full load?");
-        StringBuilder body = new StringBuilder();
-        body.append("This will run: ").append(names(tests)).append(" at 100% load.");
-        if (duration > 0) {
-            body.append("\nDuration: ").append(duration).append(" seconds.");
-        } else {
-            body.append("\nRuns until you press Stop.");
+        final boolean[] approved = {false};
+
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.WINDOW_MODAL);
+        javafx.stage.Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        if (owner != null) {
+            dialog.initOwner(owner);
         }
-        body.append("\n\nTemperatures will rise. UltraMonitor will stop the test automatically")
+        Theme.decorate(dialog);
+
+        VBox shell = new VBox();
+        shell.getStyleClass().add("window");
+
+        HBox header = new HBox(14);
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.setPadding(new Insets(14, 22, 6, 22));
+
+        StackPane iconBox = new StackPane();
+        iconBox.getStyleClass().add("card-icon");
+        SVGPath warnIcon = new SVGPath();
+        warnIcon.setContent("M12 3 2 21h20L12 3zm0 4 6.5 11h-13L12 7zm0 5.5a1 1 0 0 0-1 1v2a1 1 0 0 0 2 0v-2a1 1 0 0 0-1-1zm0 5a1.2 1.2 0 1 0 0 .01z");
+        warnIcon.getStyleClass().add("dialog-warn-icon");
+        iconBox.getChildren().add(warnIcon);
+
+        VBox headerTexts = new VBox(2);
+        Label titleLabel = new Label("Start Stress Test");
+        titleLabel.getStyleClass().add("card-title");
+        Label subtitleLabel = new Label("Push your hardware to full load?");
+        subtitleLabel.getStyleClass().add("card-subtitle");
+        headerTexts.getChildren().addAll(titleLabel, subtitleLabel);
+        header.getChildren().addAll(iconBox, headerTexts);
+
+        StringBuilder bodyText = new StringBuilder();
+        bodyText.append("This will run: ").append(names(tests)).append(" at 100% load.");
+        if (duration > 0) {
+            bodyText.append("\nDuration: ").append(duration).append(" seconds.");
+        } else {
+            bodyText.append("\nRuns until you press Stop.");
+        }
+        bodyText.append("\n\nTemperatures will rise. UltraMonitor will stop the test automatically")
                 .append(" if the CPU temperature exceeds ")
                 .append(String.format(Locale.ROOT, "%.0f", AUTO_STOP_TEMP_C))
                 .append(" °C.\n\nContinue?");
-        alert.setContentText(body.toString());
+        Label body = new Label(bodyText.toString());
+        body.getStyleClass().add("desc");
+        body.setWrapText(true);
+        body.setMaxWidth(400);
+        VBox.setMargin(body, new Insets(4, 22, 4, 22));
 
-        // Inherit the app's dark stylesheet so the dialog matches the theme.
-        Scene scene = root.getScene();
-        if (scene != null) {
-            DialogPane pane = alert.getDialogPane();
-            pane.getStylesheets().addAll(scene.getStylesheets());
-        }
-        return alert.showAndWait().filter(r -> r == ButtonType.OK).isPresent();
+        Button cancelButton = new Button("Cancel");
+        cancelButton.getStyleClass().addAll("btn", "btn-secondary");
+        cancelButton.setOnAction(e -> dialog.hide());
+
+        Button startButton = new Button("Start");
+        startButton.getStyleClass().addAll("btn", "btn-primary");
+        startButton.setDefaultButton(true);
+        startButton.setOnAction(e -> {
+            approved[0] = true;
+            dialog.hide();
+        });
+
+        HBox actions = new HBox(10);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+        actions.setPadding(new Insets(10, 22, 18, 22));
+        actions.getChildren().addAll(cancelButton, startButton);
+
+        shell.getChildren().addAll(new TitleBar(dialog, "Confirm", false), header, body, actions);
+
+        Scene scene = Theme.scene(shell, 460, 300);
+        dialog.setScene(scene);
+        dialog.setResizable(false);
+        dialog.showAndWait();
+        return approved[0];
     }
 
     private void stopBySystem(StressRunner current, String reason) {

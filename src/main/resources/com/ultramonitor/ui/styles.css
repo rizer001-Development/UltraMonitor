@@ -623,3 +623,10 @@
 .btn-danger:pressed {
     -fx-translate-y: 1;
 }
+
+/* ---------- Dialog warning icon ------------------------------------- */
+.dialog-warn-icon {
+    -fx-fill: #fbbf24;
+    -fx-scale-x: 1.1;
+    -fx-scale-y: 1.1;
+}
