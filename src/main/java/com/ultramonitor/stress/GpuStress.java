@@ -2,6 +2,7 @@ package com.ultramonitor.stress;
 
 import javafx.animation.AnimationTimer;
 import javafx.application.Platform;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Group;
 import javafx.scene.PerspectiveCamera;
 import javafx.scene.PointLight;
@@ -15,13 +16,10 @@ import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
-import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.PhongMaterial;
-import javafx.scene.paint.Stop;
-import javafx.scene.shape.ArcType;
 import javafx.scene.shape.Sphere;
 import javafx.scene.transform.Rotate;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 import java.awt.AlphaComposite;
@@ -35,14 +33,16 @@ import java.awt.image.ConvolveOp;
 import java.awt.image.Kernel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Pushes the GPU through the JavaFX rendering pipeline (Prism), which is
- * hardware-accelerated on Windows via Direct3D. It opens two render windows,
- * each with a rotating, texture-mapped 3D sphere cluster lit by several
- * coloured lights, overlaid with a translucent canvas that is re-blurred every
- * frame and redrawn with dozens of gradient shapes and alpha-blended image
- * blits — a workload that saturates the vertex, fragment and pixel pipelines.
+ * hardware-accelerated on Windows via Direct3D. One maximized window fills the
+ * primary screen; the scene is a dense 3D swarm of hundreds of individually
+ * lit, texture-mapped spheres orbiting a large central sphere, overlaid with a
+ * canvas carrying thousands of fine translucent particles re-blurred every
+ * frame. Prism renders the 3D geometry and the blur effects on the GPU, so the
+ * workload saturates the vertex and fragment pipelines at high resolution.
  *
  * <p>In headless environments (CI, servers) it falls back to the CPU-only AWT
  * renderer so the test still runs and can be stopped cleanly. The active Prism
@@ -51,14 +51,12 @@ import java.util.List;
  */
 public final class GpuStress implements StressTest {
 
-    private static final int WINDOWS = 2;
-    private static final int VIEW_W = 1280;
-    private static final int VIEW_H = 800;
-    private static final int SHAPES_PER_FRAME = 80;
-    private static final int SPHERE_DIVISIONS = 192;
-    /** Extra render passes per pulse; GUI pulses are vsync-capped (~60 fps),
-     *  so this multiplies the GPU work done per displayed frame. */
-    private static final int PASSES_PER_PULSE = 3;
+    private static final int SWARM_SIZE = 180;
+    private static final int PARTICLES = 4000;
+    private static final int SPHERE_DIVISIONS = 96;
+    /** Extra render passes per pulse; GUI pulses are vsync-capped, so this
+     *  multiplies the GPU work done per displayed frame. */
+    private static final int PASSES_PER_PULSE = 4;
 
     // Shared across instances: the GUI rebuilds the StressTestView (and thus a
     // new GpuStress) on every open, but the FX toolkit, windows and timer must
@@ -141,10 +139,9 @@ public final class GpuStress implements StressTest {
             return;
         }
         // Default JavaFX pulses are throttled to the display refresh rate
-        // (~60 fps), which caps how hard the GPU is pushed. Asking for
-        // full-speed pulses makes Prism render as fast as the hardware allows.
-        // Must be set before the toolkit starts; harmless in the GUI app where
-        // the toolkit is already running.
+        // (~60 fps). Asking for full-speed pulses makes Prism render as fast as
+        // the hardware allows. Must be set before the toolkit starts; harmless
+        // in the GUI app where the toolkit is already running.
         System.setProperty("javafx.animation.fullspeed", "true");
         try {
             Platform.startup(this::initFx);
@@ -163,24 +160,22 @@ public final class GpuStress implements StressTest {
             return;
         }
         noise = makeNoise();
-        for (int i = 0; i < WINDOWS; i++) {
-            GpuWindow window = new GpuWindow(90 + i * 700, 60 + i * 60);
-            windows.add(window);
-            // Windows MUST be shown for Prism to run render passes — a hidden
-            // stage never renders a frame, so the GPU stays idle.
-            window.stage.show();
-        }
+        GpuWindow window = new GpuWindow();
+        windows.add(window);
+        // Windows MUST be shown for Prism to run render passes — a hidden
+        // stage never renders a frame, so the GPU stays idle.
+        window.stage.show();
         pipeline = detectPipeline();
         timer = new AnimationTimer() {
             @Override
             public void handle(long now) {
                 double t = now / 1_000_000_000.0;
-                // Multiple render passes per pulse multiply the GPU work done per
-                // displayed frame (GUI pulses are vsync-capped at ~60 fps).
+                // Multiple render passes per pulse multiply the GPU work done
+                // per displayed frame (GUI pulses are vsync-capped).
                 for (int pass = 0; pass < PASSES_PER_PULSE; pass++) {
                     double tt = t + pass * 0.004;
-                    for (GpuWindow window : windows) {
-                        window.render(tt);
+                    for (GpuWindow w : windows) {
+                        w.render(tt);
                     }
                 }
                 if (!running) {
@@ -201,13 +196,13 @@ public final class GpuStress implements StressTest {
         }
     }
 
-    /** Pseudo-random texture used as the spheres' diffuse map and 2D overlay. */
+    /** Pseudo-random texture used as the spheres' diffuse map. */
     private WritableImage makeNoise() {
-        WritableImage image = new WritableImage(VIEW_W, VIEW_H);
+        WritableImage image = new WritableImage(1024, 1024);
         PixelWriter writer = image.getPixelWriter();
         int seed = 12345;
-        for (int y = 0; y < VIEW_H; y++) {
-            for (int x = 0; x < VIEW_W; x++) {
+        for (int y = 0; y < 1024; y++) {
+            for (int x = 0; x < 1024; x++) {
                 seed = seed * 1664525 + 1013904223;
                 int r = (seed >>> 16) & 0xFF;
                 int g = (seed >>> 8) & 0xFF;
@@ -229,148 +224,125 @@ public final class GpuStress implements StressTest {
         }
     }
 
-    /** One render window: textured 3D sphere cluster + blurred 2D overlay. */
+    /** The single render window: full-screen 3D swarm + particle blur overlay. */
     private final class GpuWindow {
 
         final Stage stage;
         final Canvas canvas;
-        final Canvas canvas2;
+        final Rotate swarmRotate = new Rotate(0, Rotate.Y_AXIS);
+        final Rotate swarmTilt = new Rotate(0, Rotate.X_AXIS);
         final Rotate mainRotateX = new Rotate(0, Rotate.X_AXIS);
         final Rotate mainRotateY = new Rotate(0, Rotate.Y_AXIS);
-        final Group orbiters = new Group();
-        final Rotate orbitRotate = new Rotate(0, Rotate.Z_AXIS);
+        final double w;
+        final double h;
+        final double scale;
 
-        GpuWindow(double x, double y) {
-            // Main textured sphere, very high polygon count.
-            Sphere main = new Sphere(180, SPHERE_DIVISIONS);
+        GpuWindow() {
+            Rectangle2D bounds = Screen.getPrimary().getVisualBounds();
+            w = bounds.getWidth();
+            h = bounds.getHeight();
+            scale = Math.min(w, h) / 900.0; // scene tuned for a ~900px viewport
+
+            Random random = new Random(42);
+            Group world = new Group();
+
+            // Dense swarm of small textured spheres at random positions.
+            Group swarm = new Group();
+            for (int i = 0; i < SWARM_SIZE; i++) {
+                double radius = (14 + random.nextDouble() * 55) * scale;
+                Sphere sphere = new Sphere(radius, SPHERE_DIVISIONS / 2);
+                PhongMaterial material = new PhongMaterial(
+                        Color.hsb(random.nextDouble() * 360, 0.75, 1.0));
+                material.setDiffuseMap(noise);
+                material.setSpecularColor(Color.WHITE);
+                sphere.setMaterial(material);
+                double spread = 1500 * scale;
+                sphere.setTranslateX((random.nextDouble() - 0.5) * 2 * spread);
+                sphere.setTranslateY((random.nextDouble() - 0.5) * 2 * spread);
+                sphere.setTranslateZ((random.nextDouble() - 0.5) * 2 * spread);
+                swarm.getChildren().add(sphere);
+            }
+            swarm.getTransforms().addAll(swarmRotate, swarmTilt);
+
+            // Large central sphere, heavily tessellated.
+            Sphere main = new Sphere(240 * scale, SPHERE_DIVISIONS);
             PhongMaterial mainMaterial = new PhongMaterial(Color.WHITE);
             mainMaterial.setDiffuseMap(noise);
             mainMaterial.setSpecularColor(Color.WHITE);
             main.setMaterial(mainMaterial);
             main.getTransforms().addAll(mainRotateX, mainRotateY);
 
-            // Three smaller orbiting spheres, each textured too.
-            Color[] orbitColors = {Color.LIGHTBLUE, Color.PALEVIOLETRED, Color.LIGHTGREEN};
-            for (int i = 0; i < orbitColors.length; i++) {
-                Sphere orbiter = new Sphere(70 + i * 15, SPHERE_DIVISIONS / 2);
-                PhongMaterial material = new PhongMaterial(orbitColors[i]);
-                material.setDiffuseMap(noise);
-                material.setSpecularColor(Color.WHITE);
-                orbiter.setMaterial(material);
-                orbiter.setTranslateX((i - 1) * 320);
-                orbiter.setTranslateY((i % 2 == 0 ? 1 : -1) * 180);
-                orbiter.setTranslateZ(60);
-                orbiters.getChildren().add(orbiter);
+            // Four coloured lights sweeping the scene for per-pixel shading.
+            PointLight[] lights = new PointLight[4];
+            Color[] lightColors = {Color.WHITE, Color.PALEGOLDENROD, Color.DODGERBLUE, Color.HOTPINK};
+            for (int i = 0; i < lights.length; i++) {
+                lights[i] = new PointLight(lightColors[i]);
             }
-            orbiters.getTransforms().add(orbitRotate);
+            lights[0].setTranslateX(1500 * scale);
+            lights[0].setTranslateY(800 * scale);
+            lights[0].setTranslateZ(1600 * scale);
+            lights[1].setTranslateX(-1500 * scale);
+            lights[1].setTranslateY(-800 * scale);
+            lights[1].setTranslateZ(-1400 * scale);
+            lights[2].setTranslateX(0);
+            lights[2].setTranslateY(-1400 * scale);
+            lights[2].setTranslateZ(600 * scale);
+            lights[3].setTranslateX(0);
+            lights[3].setTranslateY(1400 * scale);
+            lights[3].setTranslateZ(-600 * scale);
 
-            // Three coloured lights for rich per-pixel shading.
-            PointLight light1 = new PointLight(Color.WHITE);
-            light1.setTranslateX(420);
-            light1.setTranslateY(300);
-            light1.setTranslateZ(480);
-            PointLight light2 = new PointLight(Color.PALEGOLDENROD);
-            light2.setTranslateX(-420);
-            light2.setTranslateY(-300);
-            light2.setTranslateZ(-360);
-            PointLight light3 = new PointLight(Color.DODGERBLUE);
-            light3.setTranslateX(0);
-            light3.setTranslateY(-420);
-            light3.setTranslateZ(200);
+            world.getChildren().addAll(main, swarm);
+            world.getChildren().addAll(lights);
 
-            Group world = new Group(main, orbiters, light1, light2, light3);
             PerspectiveCamera camera = new PerspectiveCamera(true);
-            camera.setTranslateZ(-720);
-            SubScene subScene = new SubScene(world, VIEW_W, VIEW_H, true, SceneAntialiasing.BALANCED);
+            camera.setTranslateZ(-(2600 * scale));
+            camera.setFieldOfView(55);
+            SubScene subScene = new SubScene(world, w, h, true, SceneAntialiasing.BALANCED);
             subScene.setCamera(camera);
 
-            // Two stacked canvas layers, each re-blurred every frame: two blur
-            // passes plus twice the draw calls per pulse.
-            canvas = new Canvas(VIEW_W, VIEW_H);
-            canvas2 = new Canvas(VIEW_W, VIEW_H);
+            // Particle overlay: thousands of fine dots, re-blurred every frame.
+            canvas = new Canvas(w, h);
             Group overlay = new Group(canvas);
-            overlay.setEffect(new BoxBlur(16, 16, 5));
-            Group overlay2 = new Group(canvas2);
-            overlay2.setEffect(new BoxBlur(8, 8, 3));
+            overlay.setEffect(new BoxBlur(10, 10, 3));
 
-            StackPane root = new StackPane(subScene, overlay, overlay2);
-            Scene scene = new Scene(root, VIEW_W, VIEW_H, true);
+            StackPane root = new StackPane(subScene, overlay);
+            Scene scene = new Scene(root, w, h, true);
             scene.setFill(Color.TRANSPARENT);
-
-            // The canvas and 3D view track the window size, so maximizing the
-            // window turns it into a full-screen GPU burn (more pixels = more
-            // fragment work), like FurMark. Open maximized by default.
-            subScene.widthProperty().bind(root.widthProperty());
-            subScene.heightProperty().bind(root.heightProperty());
-            canvas.widthProperty().bind(root.widthProperty());
-            canvas.heightProperty().bind(root.heightProperty());
-            canvas2.widthProperty().bind(root.widthProperty());
-            canvas2.heightProperty().bind(root.heightProperty());
 
             stage = new Stage();
             stage.setTitle("UltraMonitor GPU Stress");
             stage.setScene(scene);
-            stage.setX(x);
-            stage.setY(y);
             stage.setMinWidth(640);
             stage.setMinHeight(480);
+            // Fill the whole screen — maximum resolution, maximum fragment work.
+            stage.setMaximized(true);
         }
 
         void render(double t) {
+            swarmRotate.setAngle((t * 30) % 360);
+            swarmTilt.setAngle(Math.sin(t * 0.5) * 20);
             mainRotateX.setAngle((t * 55) % 360);
             mainRotateY.setAngle((t * 37) % 360);
-            orbitRotate.setAngle((t * 120) % 360);
 
             GraphicsContext gc = canvas.getGraphicsContext2D();
-            double w = canvas.getWidth();
-            double h = canvas.getHeight();
             gc.clearRect(0, 0, w, h);
-
-            // Full-canvas rotating gradient fill — pure fill-rate work.
-            gc.setFill(new LinearGradient(0, 0, w, h, false, CycleMethod.REPEAT,
-                    new Stop(0, Color.hsb((t * 40) % 360, 0.9, 0.5)),
-                    new Stop(1, Color.hsb((t * 40 + 180) % 360, 0.9, 0.3))));
-            gc.fillRect(0, 0, w, h);
-
-            // Rotated cluster of translucent gradient shapes.
-            gc.save();
-            gc.translate(w / 2, h / 2);
-            gc.rotate((t * 90) % 360);
-            for (int i = 0; i < SHAPES_PER_FRAME; i++) {
-                gc.setFill(Color.hsb((t * 45 + i * 7) % 360, 0.8, 0.95, 0.35));
-                double r = 30 + (i % 8) * 14;
-                gc.fillOval(-r - (i % 5) * 34, -r + (i % 4) * 28, r * 2, r * 2);
-                gc.fillArc((i % 5) * 48, -(i % 3) * 36, 110, 110, (t * 60 + i * 20) % 360, 120, ArcType.ROUND);
+            // Thousands of fine translucent particles — dense fragment work.
+            double spin = (t * 60) % 360;
+            for (int i = 0; i < PARTICLES; i++) {
+                double px = ((i * 2654435761L) & 0xFFFFF) % (long) w;
+                double py = ((i * 40503L) & 0xFFFFF) % (long) h;
+                double r = 1.2 + (i % 5) * 0.7;
+                gc.setFill(Color.hsb((t * 40 + i * 0.7) % 360, 0.9, 1.0, 0.35));
+                gc.fillOval(px, py + Math.sin(t + i) * 8, r, r);
             }
-            gc.restore();
-
-            // Two full-canvas alpha-blended blits — heavy compositing bandwidth.
-            gc.setGlobalAlpha(0.25);
-            gc.save();
-            gc.translate(w / 2, h / 2);
-            gc.rotate((t * 45) % 360);
-            gc.drawImage(noise, -w / 2, -h / 2, w, h);
-            gc.restore();
-            gc.setGlobalAlpha(0.15);
-            gc.save();
-            gc.translate(w / 2, h / 2);
-            gc.rotate(-(t * 30) % 360);
-            gc.scale(0.7, 0.7);
-            gc.drawImage(noise, -w / 2, -h / 2, w, h);
-            gc.restore();
+            // A few large translucent rings sweeping across — extra fill-rate.
+            gc.setGlobalAlpha(0.12);
+            gc.setFill(Color.hsb(spin, 0.9, 1.0));
+            gc.fillOval(w / 2 - 600, h / 2 - 600 + Math.sin(t) * 200, 1200, 1200);
+            gc.setGlobalAlpha(0.06);
+            gc.setFill(Color.hsb((spin + 180) % 360, 0.9, 1.0));
+            gc.fillOval(w / 2 - 900, h / 2 - 900 + Math.cos(t) * 200, 1800, 1800);
             gc.setGlobalAlpha(1.0);
-
-            // Second canvas feeds a second, stronger blur layer — more GPU
-            // fragment work per frame.
-            GraphicsContext gc2 = canvas2.getGraphicsContext2D();
-            gc2.clearRect(0, 0, w, h);
-            gc2.setGlobalAlpha(0.3);
-            for (int i = 0; i < SHAPES_PER_FRAME / 2; i++) {
-                gc2.setFill(Color.hsb((t * 30 + i * 11) % 360, 0.9, 0.9, 0.4));
-                double r = 60 + (i % 5) * 24;
-                gc2.fillOval((i * 73) % w, (i * 47) % h, r * 2, r * 2);
-            }
-            gc2.setGlobalAlpha(1.0);
         }
     }
 

@@ -37,9 +37,9 @@ required, just a single jar + launcher.
   - *Disk* — parallel sequential writes/reads (with periodic fsync) plus random 64 KB I/O on a
     temporary file (slider: file size in MB);
   - *GPU* — hardware-accelerated rendering stress via JavaFX (Prism / Direct3D on Windows):
-    two maximized render windows with a rotating texture-mapped 3D sphere cluster, three
-    coloured lights, full-screen gradient fills, double blur layers and alpha-blended
-    compositing (multi-pass per frame). The live status shows which Prism pipeline is active
+    one full-screen maximized window with a dense 3D swarm of ~180 textured, lit spheres plus
+    a heavily tessellated central sphere and thousands of fine blurred particles — multi-pass
+    rendering at maximum resolution. The live status shows which Prism pipeline is active
     (D3D/ES2 = hardware, SW = software fallback). Falls back to CPU-only AWT rendering in
     headless environments.
   - Optional duration in seconds (empty = run until stopped manually; max 86,400 s),
