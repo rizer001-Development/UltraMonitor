@@ -7,6 +7,7 @@ import com.ultramonitor.stress.CpuStress;
 import com.ultramonitor.stress.DiskStress;
 import com.ultramonitor.stress.GpuStress;
 import com.ultramonitor.stress.MemoryStress;
+import com.ultramonitor.stress.StressReporter;
 import com.ultramonitor.stress.StressRunner;
 import com.ultramonitor.stress.StressTest;
 import javafx.beans.property.BooleanProperty;
@@ -20,6 +21,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.ProgressBar;
+import javafx.stage.FileChooser;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
@@ -31,6 +33,8 @@ import javafx.scene.layout.VBox;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.Stage;
 
+import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -78,6 +82,9 @@ public final class StressTestView {
     private final TextField durationField = new TextField();
     private final Button startButton = new Button("Start");
     private final Button stopButton = new Button("Stop");
+    private final Button reportButton = new Button("Report");
+
+    private final StressReporter reporter = new StressReporter();
 
     private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "ultramonitor-stress-ticker");
@@ -117,6 +124,7 @@ public final class StressTestView {
             gpuSwitch.setDisable(running);
             startButton.setDisable(running);
             stopButton.setDisable(!running);
+            reportButton.setDisable(running || reporter.sampleCount() == 0);
         });
         runningProperty.set(false);
 
@@ -297,7 +305,11 @@ public final class StressTestView {
             }
         });
 
-        bar.getChildren().addAll(durationLabel, durationField, hint, spacer, startButton, stopButton);
+        reportButton.getStyleClass().addAll("btn", "btn-secondary");
+        reportButton.setDisable(true);
+        reportButton.setOnAction(e -> exportReport());
+
+        bar.getChildren().addAll(durationLabel, durationField, hint, spacer, startButton, reportButton, stopButton);
         return bar;
     }
 
@@ -345,6 +357,7 @@ public final class StressTestView {
             statusLabel.setText("Could not start: " + e.getMessage());
             return;
         }
+        reporter.start();
         runner = created;
         uiRunning = true;
         runningProperty.set(true);
@@ -397,6 +410,8 @@ public final class StressTestView {
             StressRunner current = runner;
             boolean running = current != null && current.isRunning();
 
+            reporter.tick(cpuLoad, ramLoad, temp);
+
             String elapsed = running ? formatElapsed(current.elapsedSeconds()) : "";
             String status = buildStatus(current, running);
 
@@ -435,6 +450,29 @@ public final class StressTestView {
         } catch (Throwable ignored) {
             // A single failed tick must not kill the window.
         }
+    }
+
+    /** Opens a file dialog and writes the recorded run to a CSV report. */
+    private void exportReport() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Export Stress Test Report");
+        chooser.setInitialFileName("stress-report.csv");
+        File file = chooser.showSaveDialog(root.getScene() == null ? null : root.getScene().getWindow());
+        if (file == null) {
+            return;
+        }
+        Path target = file.toPath();
+        if (!target.toString().toLowerCase(Locale.ROOT).endsWith(".csv")) {
+            target = target.resolveSibling(target.getFileName().toString() + ".csv");
+        }
+        String reason = runner == null ? null : runner.stopReason();
+        if (reason == null || reason.isBlank()) {
+            reason = null;
+        }
+        boolean ok = reporter.writeCsv(target, reason);
+        statusLabel.setText(ok
+                ? "Report saved to " + target.getFileName()
+                : "Could not write report to " + target.getFileName());
     }
 
     private String buildStatus(StressRunner current, boolean running) {

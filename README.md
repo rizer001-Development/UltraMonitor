@@ -40,6 +40,10 @@ required, just a single jar + launcher.
 - **Dark UI** — custom frameless windows, animated toggles and a live "LIVE" indicator.
 - **Portable** — a single jar + launcher, no installation.
 - **Headless self-test** for CI / smoke tests: `java -jar UltraMonitor.jar --selftest`.
+- **Stress-test CSV report** — after a run, click **Report** to export the recorded samples
+  (elapsed, CPU load, RAM load, CPU temperature) as a CSV.
+- **Headless stress CLI** — run the stress engine from a terminal and get a CSV report
+  (see below).
 
 > Note: on Windows, CPU temperature and fan readings require a driver such as
 > [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
@@ -105,6 +109,26 @@ java -jar UltraMonitor.jar --selftest
 A headless mode: probes the sensors, prints the readings and system info, and exits with
 code `0` on success or `1` on error.
 
+## Stress test CLI
+
+Run the same stress engine from a terminal, no GUI:
+
+```bat
+java -jar UltraMonitor.jar stress --cpu --ram --duration 60 --report stress.csv
+```
+
+Options:
+
+| Flag | Meaning |
+|------|---------|
+| `--cpu` / `--ram` / `--disk` / `--gpu` | which tests to run (at least one required) |
+| `--duration SEC` | stop after `SEC` seconds (default: until temperature limit) |
+| `--report FILE.csv` | write a CSV report (elapsed, CPU %, RAM %, CPU temp) |
+| `--temp-limit C` | auto-stop temperature in °C (default: 90) |
+
+After the run it prints a summary (sample count, average CPU/RAM load, peak temperature) and,
+if `--report` was given, writes the CSV next to the jar.
+
 ---
 
 ## Configuration
@@ -142,7 +166,8 @@ src/main/java/com/ultramonitor/
 │   ├── CpuStress          CPU load
 │   ├── MemoryStress       RAM load
 │   ├── DiskStress         disk load
-│   └── GpuStress          GPU load
+│   ├── GpuStress          GPU load
+│   └── StressReporter     per-run sample collection + CSV/summary export
 └── ui/                    JavaFX views, switch, title bar, theme
 ```
 
@@ -155,7 +180,7 @@ Unit tests live in `src/test/java/com/ultramonitor/`.
 - [x] Live sensors (all sensors + full system info, two tabs)
 - [x] CPU / RAM / disk / GPU stress tests with auto-protection — see [STRESS_TEST_PLAN.md](STRESS_TEST_PLAN.md)
 - [ ] Charts & history graphs
-- [ ] Stress test CSV report export
+- [x] Stress test CSV report export
 
 ---
 
