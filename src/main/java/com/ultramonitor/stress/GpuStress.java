@@ -15,7 +15,10 @@ import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.PhongMaterial;
+import javafx.scene.paint.Stop;
 import javafx.scene.shape.ArcType;
 import javafx.scene.shape.Sphere;
 import javafx.scene.transform.Rotate;
@@ -49,17 +52,23 @@ import java.util.List;
 public final class GpuStress implements StressTest {
 
     private static final int WINDOWS = 2;
-    private static final int VIEW_W = 960;
-    private static final int VIEW_H = 600;
-    private static final int SHAPES_PER_FRAME = 60;
+    private static final int VIEW_W = 1280;
+    private static final int VIEW_H = 800;
+    private static final int SHAPES_PER_FRAME = 80;
     private static final int SPHERE_DIVISIONS = 192;
+    /** Extra render passes per pulse; GUI pulses are vsync-capped (~60 fps),
+     *  so this multiplies the GPU work done per displayed frame. */
+    private static final int PASSES_PER_PULSE = 3;
 
-    private final List<GpuWindow> windows = new ArrayList<>();
-    private final List<Thread> awtWorkers = new ArrayList<>();
-    private volatile AnimationTimer timer;
-    private volatile WritableImage noise;
-    private volatile boolean running;
-    private volatile long sink;
+    // Shared across instances: the GUI rebuilds the StressTestView (and thus a
+    // new GpuStress) on every open, but the FX toolkit, windows and timer must
+    // survive so a second run restarts rendering instead of creating nothing.
+    private static final List<GpuWindow> windows = new ArrayList<>();
+    private static final List<Thread> awtWorkers = new ArrayList<>();
+    private static volatile AnimationTimer timer;
+    private static volatile WritableImage noise;
+    private static volatile boolean running;
+    private static volatile long sink;
     private static volatile boolean fxReady;
     private static volatile boolean fxStartedByUs;
     private static volatile String pipeline = "unknown";
@@ -149,6 +158,8 @@ public final class GpuStress implements StressTest {
 
     private void initFx() {
         if (timer != null) {
+            // Second run: just bring the existing windows back and resume.
+            showWindows();
             return;
         }
         noise = makeNoise();
@@ -164,8 +175,13 @@ public final class GpuStress implements StressTest {
             @Override
             public void handle(long now) {
                 double t = now / 1_000_000_000.0;
-                for (GpuWindow window : windows) {
-                    window.render(t);
+                // Multiple render passes per pulse multiply the GPU work done per
+                // displayed frame (GUI pulses are vsync-capped at ~60 fps).
+                for (int pass = 0; pass < PASSES_PER_PULSE; pass++) {
+                    double tt = t + pass * 0.004;
+                    for (GpuWindow window : windows) {
+                        window.render(tt);
+                    }
                 }
                 if (!running) {
                     timer.stop();
@@ -218,6 +234,7 @@ public final class GpuStress implements StressTest {
 
         final Stage stage;
         final Canvas canvas;
+        final Canvas canvas2;
         final Rotate mainRotateX = new Rotate(0, Rotate.X_AXIS);
         final Rotate mainRotateY = new Rotate(0, Rotate.Y_AXIS);
         final Group orbiters = new Group();
@@ -267,21 +284,28 @@ public final class GpuStress implements StressTest {
             SubScene subScene = new SubScene(world, VIEW_W, VIEW_H, true, SceneAntialiasing.BALANCED);
             subScene.setCamera(camera);
 
+            // Two stacked canvas layers, each re-blurred every frame: two blur
+            // passes plus twice the draw calls per pulse.
             canvas = new Canvas(VIEW_W, VIEW_H);
+            canvas2 = new Canvas(VIEW_W, VIEW_H);
             Group overlay = new Group(canvas);
-            overlay.setEffect(new BoxBlur(12, 12, 4));
+            overlay.setEffect(new BoxBlur(16, 16, 5));
+            Group overlay2 = new Group(canvas2);
+            overlay2.setEffect(new BoxBlur(8, 8, 3));
 
-            StackPane root = new StackPane(subScene, overlay);
+            StackPane root = new StackPane(subScene, overlay, overlay2);
             Scene scene = new Scene(root, VIEW_W, VIEW_H, true);
             scene.setFill(Color.TRANSPARENT);
 
             // The canvas and 3D view track the window size, so maximizing the
             // window turns it into a full-screen GPU burn (more pixels = more
-            // fragment work), like FurMark.
+            // fragment work), like FurMark. Open maximized by default.
             subScene.widthProperty().bind(root.widthProperty());
             subScene.heightProperty().bind(root.heightProperty());
             canvas.widthProperty().bind(root.widthProperty());
             canvas.heightProperty().bind(root.heightProperty());
+            canvas2.widthProperty().bind(root.widthProperty());
+            canvas2.heightProperty().bind(root.heightProperty());
 
             stage = new Stage();
             stage.setTitle("UltraMonitor GPU Stress");
@@ -301,6 +325,12 @@ public final class GpuStress implements StressTest {
             double w = canvas.getWidth();
             double h = canvas.getHeight();
             gc.clearRect(0, 0, w, h);
+
+            // Full-canvas rotating gradient fill — pure fill-rate work.
+            gc.setFill(new LinearGradient(0, 0, w, h, false, CycleMethod.REPEAT,
+                    new Stop(0, Color.hsb((t * 40) % 360, 0.9, 0.5)),
+                    new Stop(1, Color.hsb((t * 40 + 180) % 360, 0.9, 0.3))));
+            gc.fillRect(0, 0, w, h);
 
             // Rotated cluster of translucent gradient shapes.
             gc.save();
@@ -329,6 +359,18 @@ public final class GpuStress implements StressTest {
             gc.drawImage(noise, -w / 2, -h / 2, w, h);
             gc.restore();
             gc.setGlobalAlpha(1.0);
+
+            // Second canvas feeds a second, stronger blur layer — more GPU
+            // fragment work per frame.
+            GraphicsContext gc2 = canvas2.getGraphicsContext2D();
+            gc2.clearRect(0, 0, w, h);
+            gc2.setGlobalAlpha(0.3);
+            for (int i = 0; i < SHAPES_PER_FRAME / 2; i++) {
+                gc2.setFill(Color.hsb((t * 30 + i * 11) % 360, 0.9, 0.9, 0.4));
+                double r = 60 + (i % 5) * 24;
+                gc2.fillOval((i * 73) % w, (i * 47) % h, r * 2, r * 2);
+            }
+            gc2.setGlobalAlpha(1.0);
         }
     }
 
