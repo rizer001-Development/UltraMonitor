@@ -30,10 +30,14 @@ required, just a single jar + launcher.
 - **Configurable refresh rate** — from **1 to 10,000 ms**; persisted to `config.json` next to
   the application.
 - **Stress test** — four tests with their own parameters:
-  - *CPU* — full floating-point load on the selected cores (thread slider);
-  - *RAM* — allocate and constantly read/write memory buffers (slider: % of available RAM);
-  - *Disk* — sequential writes and reads on a temporary file (slider: file size in MB);
-  - *GPU* — rendering pipeline stress (accelerated graphics).
+  - *CPU* — full load across every execution unit: vectorized FMA pass (auto-vectorized to AVX2),
+    a scalar transcendental chain and a cache-buster walk (thread slider);
+  - *RAM* — allocate and constantly read/write memory buffers with up to 8 partitioned churn
+    threads to saturate memory bandwidth (slider: % of available RAM);
+  - *Disk* — parallel sequential writes/reads (with periodic fsync) plus random 64 KB I/O on a
+    temporary file (slider: file size in MB);
+  - *GPU* — heavy rendering pipeline stress: gradient fills, rotated shapes, alpha-blended
+    compositing and periodic convolution blur (accelerated graphics).
   - Optional duration in seconds (empty = run until stopped manually; max 86,400 s),
     **Start / Stop** buttons, live CPU load, RAM load and temperature gauges, a progress bar and
     **automatic stop at 90 °C**.

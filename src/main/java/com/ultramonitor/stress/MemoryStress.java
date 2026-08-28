@@ -100,8 +100,14 @@ public final class MemoryStress implements StressTest {
             }
         }
         if (keptCount > 0 && running) {
-            for (int i = 0; i < Math.min(4, keptCount); i++) {
-                Thread thread = new Thread(this::churn, "ultramonitor-ram-" + i);
+            // Scale churn threads with core count (up to 8) so memory bandwidth
+            // is saturated, and partition the buffers so threads never fight
+            // over the same cache lines.
+            int churners = Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors() / 2));
+            final int total = Math.min(churners, keptCount);
+            for (int t = 0; t < total; t++) {
+                final int slice = t;
+                Thread thread = new Thread(() -> churn(slice, total), "ultramonitor-ram-" + t);
                 thread.setDaemon(true);
                 thread.start();
                 workers.add(thread);
@@ -141,10 +147,12 @@ public final class MemoryStress implements StressTest {
         }
     }
 
-    private void churn() {
+    private void churn(int slice, int total) {
         long checksum = 0;
         while (running) {
-            for (byte[] buffer : buffers) {
+            byte[][] buf = buffers;
+            for (int b = slice; b < buf.length; b += total) {
+                byte[] buffer = buf[b];
                 if (buffer == null) {
                     continue;
                 }
