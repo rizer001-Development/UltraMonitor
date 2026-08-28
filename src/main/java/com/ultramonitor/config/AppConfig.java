@@ -69,8 +69,13 @@ public final class AppConfig {
         try {
             Path dir = appDir();
             Files.createDirectories(dir);
+            Path target = configFile();
+            // Atomic write: write to a temp sibling then rename, so a crash in
+            // the middle never leaves a truncated/corrupt config.json.
+            Path temp = target.resolveSibling(target.getFileName() + ".tmp");
             String json = "{\"" + KEY + "\": " + clamped + "}\n";
-            Files.writeString(configFile(), json);
+            Files.writeString(temp, json, java.nio.charset.StandardCharsets.UTF_8);
+            Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             return true;
         } catch (IOException ignored) {
             return false;

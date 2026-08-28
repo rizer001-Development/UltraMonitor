@@ -11,6 +11,11 @@ import javafx.stage.Stage;
 /**
  * JavaFX application: the main menu owns two toggle switches that open and
  * close the Sensors and Stress Test windows.
+ *
+ * <p>Each window is rebuilt on every open and torn down on every close, so its
+ * sampler/ticker threads are shut down while hidden and never start twice
+ * (previously the cached StressTestView was closed but reused, leaving a dead
+ * ticker on the next open).</p>
  */
 public final class GuiApp extends Application {
 
@@ -66,7 +71,15 @@ public final class GuiApp extends Application {
             sensorsView = new SensorsView(sensorsStage);
             sensorsStage.setScene(Theme.scene(sensorsView.root, 980, 700));
             Theme.decorate(sensorsStage);
-            sensorsStage.setOnHidden(e -> menu.sensorsSwitch.setSelected(false));
+            sensorsStage.setOnHidden(e -> {
+                // stop sampling while hidden; the view is recreated on next open
+                if (sensorsView != null) {
+                    sensorsView.close();
+                    sensorsView = null;
+                }
+                sensorsStage = null;
+                menu.sensorsSwitch.setSelected(false);
+            });
         }
         sensorsStage.show();
         sensorsStage.toFront();
@@ -86,7 +99,11 @@ public final class GuiApp extends Application {
             stressStage.setScene(Theme.scene(stressView.root, 880, 660));
             Theme.decorate(stressStage);
             stressStage.setOnHidden(e -> {
-                stressView.close();
+                if (stressView != null) {
+                    stressView.close();
+                    stressView = null;
+                }
+                stressStage = null;
                 menu.stressSwitch.setSelected(false);
             });
         }
@@ -100,4 +117,4 @@ public final class GuiApp extends Application {
             stressStage.hide();
         }
     }
-}
+}

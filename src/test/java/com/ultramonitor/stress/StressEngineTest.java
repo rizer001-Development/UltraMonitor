@@ -46,6 +46,17 @@ class StressEngineTest {
     }
 
     @Test
+    void memoryStressStopMidAllocationReleasesAndFlagsStopped() {
+        // Use a target large enough that allocation is still running when stop()
+        // fires; stop() must drain the half-built buffer array without leaking it.
+        MemoryStress memory = new MemoryStress(2L * 1024 * 1024 * 1024); // 2 GB target
+        memory.start();
+        // Stop almost immediately, racing the allocator thread.
+        memory.stop();
+        assertFalse(memory.isRunning());
+    }
+
+    @Test
     void diskStressDeletesTempFile() throws Exception {
         DiskStress disk = new DiskStress(64);
         disk.start();

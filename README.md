@@ -71,6 +71,13 @@ You can also build manually via Gradle:
 gradlew.bat clean fatJar
 ```
 
+To target a different OS classifier for the bundled JavaFX natives (e.g. building on
+Linux but producing a Windows jar):
+
+```bat
+gradlew.bat clean fatJar -Pjavafx.platform=win
+```
+
 ## Run
 
 ```bat

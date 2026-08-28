@@ -15,6 +15,10 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
@@ -331,6 +335,9 @@ public final class StressTestView {
             statusLabel.setText("Duration must be between 0 and 86,400 seconds.");
             return;
         }
+        if (!confirmStart(tests, duration)) {
+            return;
+        }
         StressRunner created = new StressRunner(tests);
         try {
             created.start(duration);
@@ -342,6 +349,36 @@ public final class StressTestView {
         uiRunning = true;
         runningProperty.set(true);
         statusLabel.setText("Starting " + names(tests) + " …");
+    }
+
+    /**
+     * Asks the user to confirm before pushing the hardware to full load.
+     * Returns {@code true} when the run should proceed.
+     */
+    private boolean confirmStart(List<StressTest> tests, long duration) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Start Stress Test");
+        alert.setHeaderText("Push your hardware to full load?");
+        StringBuilder body = new StringBuilder();
+        body.append("This will run: ").append(names(tests)).append(" at 100% load.");
+        if (duration > 0) {
+            body.append("\nDuration: ").append(duration).append(" seconds.");
+        } else {
+            body.append("\nRuns until you press Stop.");
+        }
+        body.append("\n\nTemperatures will rise. UltraMonitor will stop the test automatically")
+                .append(" if the CPU temperature exceeds ")
+                .append(String.format(Locale.ROOT, "%.0f", AUTO_STOP_TEMP_C))
+                .append(" °C.\n\nContinue?");
+        alert.setContentText(body.toString());
+
+        // Inherit the app's dark stylesheet so the dialog matches the theme.
+        Scene scene = root.getScene();
+        if (scene != null) {
+            DialogPane pane = alert.getDialogPane();
+            pane.getStylesheets().addAll(scene.getStylesheets());
+        }
+        return alert.showAndWait().filter(r -> r == ButtonType.OK).isPresent();
     }
 
     private void stopBySystem(StressRunner current, String reason) {

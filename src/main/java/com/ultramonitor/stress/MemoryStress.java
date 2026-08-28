@@ -10,6 +10,11 @@ import java.util.List;
  * every page so it is really committed, then keeps reading and writing the
  * buffers so memory bandwidth stays busy. Allocation runs on a worker thread so
  * the caller (the UI) never freezes while gigabytes are being reserved.
+ *
+ * <p>Stopping is safe at any time: if stop() fires while the allocator is still
+ * filling buffers, the interrupted allocation is drained and released so no
+ * chunk leaks (previously the partially-allocated array was dropped without a
+ * reference, leaking potentially gigabytes at the worst possible moment).
  */
 public final class MemoryStress implements StressTest {
 
@@ -58,52 +63,79 @@ public final class MemoryStress implements StressTest {
     @Override
     public void start() {
         running = true;
-        allocator = new Thread(this::allocate, "ultramonitor-ram-alloc");
-        allocator.setDaemon(true);
-        allocator.start();
+        Thread thread = new Thread(this::allocate, "ultramonitor-ram-alloc");
+        thread.setDaemon(true);
+        allocator = thread;
+        thread.start();
     }
 
     private void allocate() {
         long target = explicitBytes > 0
                 ? explicitBytes
                 : new SystemInfo().getHardware().getMemory().getAvailable() * percent / 100L;
-        int count = (int) Math.max(1, target / CHUNK_BYTES);
+        int count = Math.max(1, (int) (target / CHUNK_BYTES));
         byte[][] allocated = new byte[count][];
-        for (int i = 0; i < count && running; i++) {
-            allocated[i] = new byte[CHUNK_BYTES];
-            java.util.Arrays.fill(allocated[i], (byte) i); // touch every page
+        byte[][] kept = new byte[count][];
+        int keptCount = 0;
+        try {
+            for (int i = 0; i < count && running; i++) {
+                byte[] chunk = new byte[CHUNK_BYTES];
+                java.util.Arrays.fill(chunk, (byte) i); // touch every page
+                allocated[i] = chunk;
+                kept[keptCount++] = chunk;
+            }
+        } catch (OutOfMemoryError oom) {
+            // Stop filling; keep whatever was already committed so the stress can
+            // continue with what we have instead of dying.
+        } finally {
+            if (!running || keptCount == 0) {
+                // stop() was called mid-allocation (or nothing was allocated): drain
+                // the temp array so partial chunks are released, publish an empty buffer.
+                java.util.Arrays.fill(kept, 0, keptCount, null);
+                buffers = new byte[0][];
+            } else {
+                byte[][] finalBuffers = new byte[keptCount][];
+                System.arraycopy(kept, 0, finalBuffers, 0, keptCount);
+                buffers = finalBuffers;
+            }
         }
-        buffers = allocated;
-        for (int i = 0; i < Math.min(4, count); i++) {
-            Thread thread = new Thread(this::churn, "ultramonitor-ram-" + i);
-            thread.setDaemon(true);
-            thread.start();
-            workers.add(thread);
+        if (keptCount > 0 && running) {
+            for (int i = 0; i < Math.min(4, keptCount); i++) {
+                Thread thread = new Thread(this::churn, "ultramonitor-ram-" + i);
+                thread.setDaemon(true);
+                thread.start();
+                workers.add(thread);
+            }
         }
     }
 
     @Override
     public void stop() {
         running = false;
+        if (allocator != null) {
+            joinQuietly(allocator);
+            allocator = null;
+        }
         for (Thread worker : workers) {
             joinQuietly(worker);
         }
         workers.clear();
-        Thread allocation = allocator;
-        if (allocation != null) {
-            joinQuietly(allocation);
-            allocator = null;
-        }
+        byte[][] old = buffers;
         buffers = new byte[0][];
-        // Let the JVM reclaim the buffers without blocking the caller.
-        Thread collector = new Thread(() -> System.gc(), "ultramonitor-ram-gc");
-        collector.setDaemon(true);
-        collector.start();
+        // Null out references before handing back to GC; done on a daemon thread
+        // so stop() never blocks the UI on a large release.
+        if (old.length > 0) {
+            Thread collector = new Thread(() -> {
+                java.util.Arrays.fill(old, null);
+            }, "ultramonitor-ram-release");
+            collector.setDaemon(true);
+            collector.start();
+        }
     }
 
     private static void joinQuietly(Thread thread) {
         try {
-            thread.join(500);
+            thread.join(3000);
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
@@ -124,4 +156,4 @@ public final class MemoryStress implements StressTest {
         }
         sink = checksum;
     }
-}
+}

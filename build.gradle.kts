@@ -6,6 +6,12 @@ plugins {
 group = "com.ultramonitor"
 version = "0.1.0"
 
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }
+}
+
 repositories {
     mavenCentral()
 }
@@ -15,12 +21,14 @@ val javafxVersion = "25.0.4"
 // OpenJFX publishes the actual classes under an OS classifier (the plain
 // artifact is empty). The classifier is chosen from the build machine so the
 // portable jar carries the right native libraries.
-val javafxPlatform = when {
-    System.getProperty("os.name").lowercase().contains("win") -> "win"
-    System.getProperty("os.name").lowercase().contains("mac") -> "mac"
-    System.getProperty("os.name").lowercase().contains("linux") -> "linux"
-    else -> "win"
-}
+val javafxPlatform = providers.gradleProperty("javafx.platform")
+    .orElse(when {
+        System.getProperty("os.name").lowercase().contains("win") -> "win"
+        System.getProperty("os.name").lowercase().contains("mac") -> "mac"
+        System.getProperty("os.name").lowercase().contains("linux") -> "linux"
+        else -> "win"
+    })
+    .get()
 
 dependencies {
     // JavaFX UI toolkit
