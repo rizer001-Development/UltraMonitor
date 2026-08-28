@@ -36,8 +36,10 @@ required, just a single jar + launcher.
     threads to saturate memory bandwidth (slider: % of available RAM);
   - *Disk* — parallel sequential writes/reads (with periodic fsync) plus random 64 KB I/O on a
     temporary file (slider: file size in MB);
-  - *GPU* — heavy rendering pipeline stress: gradient fills, rotated shapes, alpha-blended
-    compositing and periodic convolution blur (accelerated graphics).
+  - *GPU* — hardware-accelerated rendering stress via JavaFX (Prism / Direct3D on Windows):
+    one or two render windows with a rotating texture-mapped 3D sphere, two coloured lights,
+    per-frame blur effects and alpha-blended compositing. Falls back to CPU-only AWT rendering
+    in headless environments.
   - Optional duration in seconds (empty = run until stopped manually; max 86,400 s),
     **Start / Stop** buttons, live CPU load, RAM load and temperature gauges, a progress bar and
     **automatic stop at 90 °C**.

@@ -8,11 +8,14 @@ import java.util.List;
  * each logical processor runs at full load across all of its execution units:
  *
  * <ol>
- *   <li><b>Vector FMA pass</b> — a tight {@code Math.fma} loop over a per-thread
- *       buffer that fits in L2. The JIT auto-vectorizes it to AVX2, saturating
- *       the floating-point pipes.</li>
- *   <li><b>Transcendental chain</b> — sin/cos/sqrt/exp/log, which cannot be
- *       vectorized and hammer the FPU's transcendental units.</li>
+ *   <li><b>Vector FMA pass</b> — an 8-way unrolled {@code Math.fma} loop over a
+ *       per-thread buffer that fits in <em>L1</em> (32 KB), so it is FP-pipe
+ *       bound, not memory-stalled. The JIT auto-vectorizes it to AVX2 / AVX-512.</li>
+ *   <li><b>Transcendental chain</b> — sin/cos/sqrt/exp/log/tan, which cannot be
+ *       vectorized, plus an occasional {@code pow()} — the most expensive FPU
+ *       operation there is.</li>
+ *   <li><b>Integer multiply chain</b> — a 64-bit multiply chain that cannot be
+ *       parallelized, hammering the ALU and the 64-bit multiplier.</li>
  *   <li><b>Cache-buster walk</b> — a strided read-modify-write over a buffer far
  *       larger than L3, adding memory-bandwidth and TLB pressure.</li>
  * </ol>
@@ -21,8 +24,8 @@ import java.util.List;
  */
 public final class CpuStress implements StressTest {
 
-    /** Double-array words for the vector pass: 256 KB fits comfortably in L2. */
-    private static final int VECTOR_WORDS = 1 << 15; // 32_768 doubles = 256 KB
+    /** Double-array words for the FMA pass: 32 KB fits entirely in L1. */
+    private static final int FMA_WORDS = 4096;
     /** Cache-buster buffer size: far beyond any L3, 8 MB per thread. */
     private static final int WALK_BYTES = 8 << 20;
 
@@ -75,40 +78,63 @@ public final class CpuStress implements StressTest {
     }
 
     private void burn() {
-        // Thread-local buffers: vector pass needs L2 residency, the walker must miss L3.
-        double[] vector = new double[VECTOR_WORDS];
-        java.util.Arrays.fill(vector, 1.0000001);
+        // Thread-local buffers: the FMA pass must live in L1, the walker must miss L3.
+        double[] fma = new double[FMA_WORDS];
+        java.util.Arrays.fill(fma, 1.0000001);
         byte[] walk = new byte[WALK_BYTES];
-        double acc = 0.5;
+
+        // Four independent FP accumulators to expose instruction-level parallelism.
+        double a = 0.5, b = 0.7, c = 0.9, d = 0.3;
+        // 64-bit integer chain (Knuth's multiplicative LCG constants).
+        long acc = 0x9E3779B97F4A7C15L;
         long counter = 0;
         int walkPos = 0;
+        final double k = 1.0000000001;
+        final double e = 1e-12;
+
         while (running) {
-            // 1) Vectorized FMA pass — auto-vectorized to AVX2 by the JIT.
-            for (int i = 0; i < VECTOR_WORDS; i++) {
-                vector[i] = Math.fma(vector[i], 1.0000001, 1e-9);
+            // 1) L1-resident FMA pass, 8-way unrolled → auto-vectorized to AVX2.
+            for (int i = 0; i < FMA_WORDS; i += 8) {
+                fma[i]     = Math.fma(fma[i],     k, e);
+                fma[i + 1] = Math.fma(fma[i + 1], k, e);
+                fma[i + 2] = Math.fma(fma[i + 2], k, e);
+                fma[i + 3] = Math.fma(fma[i + 3], k, e);
+                fma[i + 4] = Math.fma(fma[i + 4], k, e);
+                fma[i + 5] = Math.fma(fma[i + 5], k, e);
+                fma[i + 6] = Math.fma(fma[i + 6], k, e);
+                fma[i + 7] = Math.fma(fma[i + 7], k, e);
             }
-            acc = vector[0];
+            a = fma[0];
 
             // 2) Scalar transcendental chain — FPU-transcendental saturation.
-            for (int i = 0; i < 64; i++) {
-                acc = Math.sin(acc) * 1.0000001 + Math.cos(acc * 0.9999999);
-                acc = Math.sqrt(Math.abs(acc)) + 1e-9;
-                acc = Math.exp(Math.log(Math.abs(acc) + 1.0));
-                acc = Math.fma(acc, 1.0000000001, 1e-12);
+            for (int i = 0; i < 128; i++) {
+                a = Math.sin(a) * 1.0000001 + Math.cos(a * 0.9999999);
+                b = Math.sqrt(Math.abs(b)) + 1e-9;
+                c = Math.exp(Math.log(Math.abs(c) + 1.0));
+                d = Math.tan(d * 0.5) * 0.5 + 0.5;
+                a = Math.fma(a, k, e);
+            }
+            if ((counter & 255) == 0) {
+                a = Math.pow(Math.abs(a) + 1.0, 1.000000001);
             }
 
-            // 3) Cache-buster: a 64-byte-strided walk misses every cache line,
+            // 3) Serial 64-bit multiply chain — ALU + multiplier latency.
+            for (int i = 0; i < 64; i++) {
+                acc = acc * 6364136223846793005L + 1442695040888963407L;
+            }
+
+            // 4) Cache-buster: 64-byte-strided walk misses every cache line,
             //    hammering memory bandwidth and the TLB.
             walkPos = (walkPos + 4096) & (WALK_BYTES - 1);
-            for (int i = 0; i < 256; i++) {
+            for (int i = 0; i < 128; i++) {
                 int idx = (walkPos + i * 64) & (WALK_BYTES - 1);
                 walk[idx] = (byte) (walk[idx] + 1);
             }
 
             if ((++counter & 15) == 0) {
-                sink = acc + counter + walk[walkPos];
+                sink = a + b + c + d + acc + walk[walkPos];
             }
         }
-        sink = acc + walk[walkPos];
+        sink = a + b + c + d + acc + walk[walkPos];
     }
 }
