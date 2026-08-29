@@ -2,8 +2,10 @@ package com.ultramonitor.stress;
 
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL20;
+import org.lwjgl.system.MemoryStack;
 
 import java.awt.AlphaComposite;
+import java.nio.FloatBuffer;
 import java.awt.GradientPaint;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
@@ -42,7 +44,15 @@ import static org.lwjgl.opengl.GL11.glClear;
 import static org.lwjgl.opengl.GL11.glClearColor;
 import static org.lwjgl.opengl.GL11.glDrawArrays;
 import static org.lwjgl.opengl.GL11.glGetString;
+import static org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER;
+import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
+import static org.lwjgl.opengl.GL15.glBindBuffer;
+import static org.lwjgl.opengl.GL15.glBufferData;
+import static org.lwjgl.opengl.GL15.glGenBuffers;
 import static org.lwjgl.opengl.GL20.GL_COMPILE_STATUS;
+import static org.lwjgl.opengl.GL20.GL_FLOAT;
+import static org.lwjgl.opengl.GL20.glEnableVertexAttribArray;
+import static org.lwjgl.opengl.GL20.glVertexAttribPointer;
 import static org.lwjgl.opengl.GL20.GL_FRAGMENT_SHADER;
 import static org.lwjgl.opengl.GL20.GL_LINK_STATUS;
 import static org.lwjgl.opengl.GL20.GL_VERTEX_SHADER;
@@ -205,8 +215,17 @@ public final class GpuStress implements StressTest {
             renderer = glGetString(GL20.GL_RENDERER);
 
             // Fullscreen quad: two triangles over the whole clip space.
+            // Its 6 vertices are uploaded to a VBO so the rasterizer actually
+            // has geometry to draw (without vertex data the window stays black).
             int vao = glGenVertexArrays();
             glBindVertexArray(vao);
+            int vbo = glGenBuffers();
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                glBufferData(GL_ARRAY_BUFFER, vertices(stack), GL_STATIC_DRAW);
+            }
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, false, 2 * Float.BYTES, 0L);
 
             int program = createProgram();
             glUseProgram(program);
@@ -250,6 +269,19 @@ public final class GpuStress implements StressTest {
             renderer = "";
             startAwtFallback();
         }
+    }
+
+    /** Six 2D vertices forming the fullscreen quad (two triangles, CCW). */
+    private static FloatBuffer vertices(MemoryStack stack) {
+        FloatBuffer data = stack.callocFloat(6 * 2);
+        data.put(-1f).put(-1f) // bottom-left
+                .put(1f).put(-1f)  // bottom-right
+                .put(-1f).put(1f)  // top-left
+                .put(-1f).put(1f)  // top-left
+                .put(1f).put(-1f)  // bottom-right
+                .put(1f).put(1f);  // top-right
+        data.flip();
+        return data;
     }
 
     private static int createProgram() {
