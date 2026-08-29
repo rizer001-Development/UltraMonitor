@@ -6,8 +6,8 @@
 
 UltraMonitor shows real-time readings from your CPU, memory, disks and network, and can put
 your system under load with CPU / RAM / disk / GPU stress tests to check stability and cooling.
-Built with **Java 21+** (compiled on Java 25), **JavaFX** and **OSHI** — no installation
-required, just a single jar + launcher.
+Built with **Java 21+** (compiled on Java 25), **JavaFX**, **LWJGL/OpenGL** and **OSHI** —
+no installation required, just a single jar + launcher.
 
 ---
 
@@ -36,12 +36,12 @@ required, just a single jar + launcher.
     threads to saturate memory bandwidth (slider: % of available RAM);
   - *Disk* — parallel sequential writes/reads (with periodic fsync) plus random 64 KB I/O on a
     temporary file (slider: file size in MB);
-  - *GPU* — hardware-accelerated rendering stress via JavaFX (Prism / Direct3D on Windows):
-    one full-screen maximized window with a dense 3D swarm of ~180 textured, lit spheres plus
-    a heavily tessellated central sphere and thousands of fine blurred particles — multi-pass
-    rendering at maximum resolution. The live status shows which Prism pipeline is active
-    (D3D/ES2 = hardware, SW = software fallback). Falls back to CPU-only AWT rendering in
-    headless environments.
+  - *GPU* — a true GPU burn via **OpenGL (LWJGL)**: a fullscreen (1920×1080) window draws a
+    fullscreen quad whose fragment shader computes the **Mandelbrot set at 512 iterations per
+    pixel** with vsync disabled (`glfwSwapInterval(0)`) — hundreds of millions of fragment
+    operations per frame, so the GPU renders as fast as the hardware allows. The live status
+    shows the OpenGL device (e.g. `NVIDIA GeForce RTX 3060`), proving a real GPU is being
+    hammered. Falls back to CPU-only AWT rendering only in headless environments.
   - Optional duration in seconds (empty = run until stopped manually; max 86,400 s),
     **Start / Stop** buttons, live CPU load, RAM load and temperature gauges, a progress bar and
     **automatic stop at 90 °C**.

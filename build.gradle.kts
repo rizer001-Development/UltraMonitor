@@ -30,11 +30,33 @@ val javafxPlatform = providers.gradleProperty("javafx.platform")
     })
     .get()
 
+// LWJGL bundles per-platform natives under a classifier; map it from the same
+// platform property used for JavaFX (win / linux / mac).
+val lwjglNatives = when (javafxPlatform) {
+    "linux" -> "natives-linux"
+    "mac" -> if (System.getProperty("os.arch").lowercase().contains("aarch64")
+            || System.getProperty("os.arch").lowercase().contains("arm")) {
+        "natives-macos-arm64"
+    } else {
+        "natives-macos"
+    }
+    else -> "natives-windows"
+}
+val lwjglVersion = "3.3.4"
+
 dependencies {
     // JavaFX UI toolkit
     implementation("org.openjfx:javafx-base:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-graphics:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-controls:$javafxVersion:$javafxPlatform")
+
+    // GPU stress: OpenGL via LWJGL (real hardware-accelerated rendering)
+    implementation("org.lwjgl:lwjgl:$lwjglVersion")
+    implementation("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
+    implementation("org.lwjgl:lwjgl-glfw:$lwjglVersion")
+    implementation("org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives")
+    implementation("org.lwjgl:lwjgl-opengl:$lwjglVersion")
+    implementation("org.lwjgl:lwjgl-opengl:$lwjglVersion:$lwjglNatives")
 
     // Hardware monitoring (CPU, RAM, disks, network, sensors)
     implementation("com.github.oshi:oshi-core:7.4.3")

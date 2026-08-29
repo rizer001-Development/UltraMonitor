@@ -1,26 +1,7 @@
 package com.ultramonitor.stress;
 
-import javafx.animation.AnimationTimer;
-import javafx.application.Platform;
-import javafx.geometry.Rectangle2D;
-import javafx.scene.Group;
-import javafx.scene.PerspectiveCamera;
-import javafx.scene.PointLight;
-import javafx.scene.Scene;
-import javafx.scene.SceneAntialiasing;
-import javafx.scene.SubScene;
-import javafx.scene.canvas.Canvas;
-import javafx.scene.canvas.GraphicsContext;
-import javafx.scene.effect.BoxBlur;
-import javafx.scene.image.PixelWriter;
-import javafx.scene.image.WritableImage;
-import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
-import javafx.scene.paint.PhongMaterial;
-import javafx.scene.shape.Sphere;
-import javafx.scene.transform.Rotate;
-import javafx.stage.Screen;
-import javafx.stage.Stage;
+import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GL20;
 
 import java.awt.AlphaComposite;
 import java.awt.GradientPaint;
@@ -33,43 +14,119 @@ import java.awt.image.ConvolveOp;
 import java.awt.image.Kernel;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
+
+import static org.lwjgl.glfw.GLFW.GLFW_CONTEXT_VERSION_MAJOR;
+import static org.lwjgl.glfw.GLFW.GLFW_CONTEXT_VERSION_MINOR;
+import static org.lwjgl.glfw.GLFW.GLFW_FALSE;
+import static org.lwjgl.glfw.GLFW.GLFW_OPENGL_CORE_PROFILE;
+import static org.lwjgl.glfw.GLFW.GLFW_OPENGL_FORWARD_COMPAT;
+import static org.lwjgl.glfw.GLFW.GLFW_OPENGL_PROFILE;
+import static org.lwjgl.glfw.GLFW.GLFW_RESIZABLE;
+import static org.lwjgl.glfw.GLFW.GLFW_TRUE;
+import static org.lwjgl.glfw.GLFW.glfwCreateWindow;
+import static org.lwjgl.glfw.GLFW.glfwDestroyWindow;
+import static org.lwjgl.glfw.GLFW.glfwGetPrimaryMonitor;
+import static org.lwjgl.glfw.GLFW.glfwGetVideoMode;
+import static org.lwjgl.glfw.GLFW.glfwInit;
+import static org.lwjgl.glfw.GLFW.glfwMakeContextCurrent;
+import static org.lwjgl.glfw.GLFW.glfwPollEvents;
+import static org.lwjgl.glfw.GLFW.glfwSwapBuffers;
+import static org.lwjgl.glfw.GLFW.glfwSwapInterval;
+import static org.lwjgl.glfw.GLFW.glfwTerminate;
+import static org.lwjgl.glfw.GLFW.glfwWindowHint;
+import static org.lwjgl.glfw.GLFW.glfwWindowShouldClose;
+import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
+import static org.lwjgl.opengl.GL11.GL_FALSE;
+import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.glClear;
+import static org.lwjgl.opengl.GL11.glClearColor;
+import static org.lwjgl.opengl.GL11.glDrawArrays;
+import static org.lwjgl.opengl.GL11.glGetString;
+import static org.lwjgl.opengl.GL20.GL_COMPILE_STATUS;
+import static org.lwjgl.opengl.GL20.GL_FRAGMENT_SHADER;
+import static org.lwjgl.opengl.GL20.GL_LINK_STATUS;
+import static org.lwjgl.opengl.GL20.GL_VERTEX_SHADER;
+import static org.lwjgl.opengl.GL20.glAttachShader;
+import static org.lwjgl.opengl.GL20.glCompileShader;
+import static org.lwjgl.opengl.GL20.glCreateProgram;
+import static org.lwjgl.opengl.GL20.glCreateShader;
+import static org.lwjgl.opengl.GL20.glDeleteProgram;
+import static org.lwjgl.opengl.GL20.glDeleteShader;
+import static org.lwjgl.opengl.GL20.glGetProgrami;
+import static org.lwjgl.opengl.GL20.glGetShaderi;
+import static org.lwjgl.opengl.GL20.glGetShaderInfoLog;
+import static org.lwjgl.opengl.GL20.glGetUniformLocation;
+import static org.lwjgl.opengl.GL20.glLinkProgram;
+import static org.lwjgl.opengl.GL20.glShaderSource;
+import static org.lwjgl.opengl.GL20.glUniform1f;
+import static org.lwjgl.opengl.GL20.glUniform2f;
+import static org.lwjgl.opengl.GL20.glUseProgram;
+import static org.lwjgl.opengl.GL30.glBindVertexArray;
+import static org.lwjgl.opengl.GL30.glGenVertexArrays;
 
 /**
- * Pushes the GPU through the JavaFX rendering pipeline (Prism), which is
- * hardware-accelerated on Windows via Direct3D. One maximized window fills the
- * primary screen; the scene is a dense 3D swarm of hundreds of individually
- * lit, texture-mapped spheres orbiting a large central sphere, overlaid with a
- * canvas carrying thousands of fine translucent particles re-blurred every
- * frame. Prism renders the 3D geometry and the blur effects on the GPU, so the
- * workload saturates the vertex and fragment pipelines at high resolution.
+ * Pushes the GPU through OpenGL (LWJGL): a fullscreen quad rendered with a
+ * heavy fragment shader computing the Mandelbrot set at 512 iterations per
+ * pixel. That is hundreds of millions of floating-point fragment operations
+ * per frame — a genuine, measurable GPU workload (the same technique used by
+ * GPU-burn tools). Vsync is disabled so the GPU renders as fast as it can.
  *
- * <p>In headless environments (CI, servers) it falls back to the CPU-only AWT
- * renderer so the test still runs and can be stopped cleanly. The active Prism
- * pipeline is detected and reported by {@link #status()}, so a software
- * fallback is visible instead of silently doing nothing.</p>
+ * <p>In headless environments it falls back to the CPU-only AWT renderer. The
+ * OpenGL renderer string (e.g. "NVIDIA GeForce RTX 3060 / PCIe / SSE2") is
+ * reported by {@link #status()}, proving a real GPU is being hammered.</p>
  */
 public final class GpuStress implements StressTest {
 
-    private static final int SWARM_SIZE = 180;
-    private static final int PARTICLES = 4000;
-    private static final int SPHERE_DIVISIONS = 96;
-    /** Extra render passes per pulse; GUI pulses are vsync-capped, so this
-     *  multiplies the GPU work done per displayed frame. */
-    private static final int PASSES_PER_PULSE = 4;
+    private static final int FRACTAL_ITERATIONS = 512;
+    private static final int WIDTH = 1920;
+    private static final int HEIGHT = 1080;
 
-    // Shared across instances: the GUI rebuilds the StressTestView (and thus a
-    // new GpuStress) on every open, but the FX toolkit, windows and timer must
-    // survive so a second run restarts rendering instead of creating nothing.
-    private static final List<GpuWindow> windows = new ArrayList<>();
-    private static final List<Thread> awtWorkers = new ArrayList<>();
-    private static volatile AnimationTimer timer;
-    private static volatile WritableImage noise;
+    private static final String VERTEX_SHADER = """
+            #version 330 core
+            layout(location = 0) in vec2 position;
+            void main() {
+                gl_Position = vec4(position, 0.0, 1.0);
+            }
+            """;
+
+    private static final String FRAGMENT_SHADER = """
+            #version 330 core
+            uniform vec2 uCenter;
+            uniform float uScale;
+            uniform vec2 uResolution;
+            out vec4 fragColor;
+
+            void main() {
+                // Map fragment position to the Mandelbrot plane.
+                vec2 uv = gl_FragCoord.xy;
+                vec2 c = (uv - 0.5 * uResolution) / (0.5 * uResolution.y * uScale) + uCenter;
+
+                // Iterate z = z^2 + c — the actual GPU workload.
+                vec2 z = vec2(0.0);
+                int iter = 0;
+                for (int i = 0; i < %d; i++) {
+                    z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+                    if (dot(z, z) > 4.0) {
+                        break;
+                    }
+                    iter = i;
+                }
+
+                // Smooth colouring so the picture stays interesting.
+                float m = float(iter) / %d.0;
+                float r = 0.5 + 0.5 * cos(3.0 + m * 6.28);
+                float g = 0.5 + 0.5 * cos(3.0 + m * 6.28 + 2.1);
+                float b = 0.5 + 0.5 * cos(3.0 + m * 6.28 + 4.2);
+                fragColor = vec4(r, g, b, 1.0);
+            }
+            """.formatted(FRACTAL_ITERATIONS, FRACTAL_ITERATIONS);
+
+    // Shared across instances so a second run reuses nothing stale; the GLFW
+    // window and render loop are owned by a dedicated worker thread.
+    private static final List<Thread> workers = new ArrayList<>();
     private static volatile boolean running;
     private static volatile long sink;
-    private static volatile boolean fxReady;
-    private static volatile boolean fxStartedByUs;
-    private static volatile String pipeline = "unknown";
+    private static volatile String renderer = "";
 
     @Override
     public String name() {
@@ -78,12 +135,10 @@ public final class GpuStress implements StressTest {
 
     @Override
     public String status() {
-        if (GraphicsEnvironment.isHeadless()) {
-            return "CPU fallback (headless)";
+        if (renderer.isBlank()) {
+            return "OpenGL " + (GraphicsEnvironment.isHeadless() ? "fallback (headless)" : "unavailable");
         }
-        String p = pipeline.toLowerCase();
-        boolean hardware = p.contains("d3d") || p.contains("es2");
-        return hardware ? "GPU · " + pipeline + " pipeline" : "software · " + pipeline;
+        return "OpenGL · " + renderer;
     }
 
     @Override
@@ -97,252 +152,132 @@ public final class GpuStress implements StressTest {
         if (GraphicsEnvironment.isHeadless()) {
             startAwtFallback();
         } else {
-            startFx();
+            startGl();
         }
     }
 
     @Override
     public void stop() {
         running = false;
-        if (timer != null || !windows.isEmpty()) {
-            Platform.runLater(() -> {
-                if (timer != null) {
-                    timer.stop();
-                }
-                for (GpuWindow window : windows) {
-                    window.stage.hide();
-                }
-            });
-            // If we bootstrapped JavaFX ourselves (CLI / tests), shut it down so
-            // the JVM is not kept alive by the FX thread.
-            if (fxStartedByUs) {
-                Platform.exit();
+        for (Thread worker : workers) {
+            try {
+                worker.join(500);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
             }
-        } else {
-            // AWT fallback workers.
-            for (Thread worker : awtWorkers) {
-                try {
-                    worker.join(300);
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            awtWorkers.clear();
         }
+        workers.clear();
     }
 
-    // ------------------------------------------------------------ FX path --
+    // -------------------------------------------------------- OpenGL path --
 
-    private void startFx() {
-        if (fxReady) {
-            Platform.runLater(this::showWindows);
-            return;
-        }
-        // Default JavaFX pulses are throttled to the display refresh rate
-        // (~60 fps). Asking for full-speed pulses makes Prism render as fast as
-        // the hardware allows. Must be set before the toolkit starts; harmless
-        // in the GUI app where the toolkit is already running.
-        System.setProperty("javafx.animation.fullspeed", "true");
+    private void startGl() {
+        Thread thread = new Thread(this::glLoop, "ultramonitor-gpu-gl");
+        thread.setDaemon(true);
+        thread.start();
+        workers.add(thread);
+    }
+
+    private void glLoop() {
         try {
-            Platform.startup(this::initFx);
-            fxStartedByUs = true;
-        } catch (IllegalStateException alreadyRunning) {
-            // The GUI app already bootstrapped the FX toolkit.
-            Platform.runLater(this::initFx);
-        }
-        fxReady = true;
-    }
+            if (!glfwInit()) {
+                renderer = "";
+                startAwtFallback();
+                return;
+            }
 
-    private void initFx() {
-        if (timer != null) {
-            // Second run: just bring the existing windows back and resume.
-            showWindows();
-            return;
-        }
-        noise = makeNoise();
-        GpuWindow window = new GpuWindow();
-        windows.add(window);
-        // Windows MUST be shown for Prism to run render passes — a hidden
-        // stage never renders a frame, so the GPU stays idle.
-        window.stage.show();
-        pipeline = detectPipeline();
-        timer = new AnimationTimer() {
-            @Override
-            public void handle(long now) {
-                double t = now / 1_000_000_000.0;
-                // Multiple render passes per pulse multiply the GPU work done
-                // per displayed frame (GUI pulses are vsync-capped).
-                for (int pass = 0; pass < PASSES_PER_PULSE; pass++) {
-                    double tt = t + pass * 0.004;
-                    for (GpuWindow w : windows) {
-                        w.render(tt);
-                    }
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+            glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+            glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+
+            long window = glfwCreateWindow(WIDTH, HEIGHT, "UltraMonitor GPU Stress", 0, 0);
+            if (window == 0) {
+                glfwTerminate();
+                startAwtFallback();
+                return;
+            }
+            glfwMakeContextCurrent(window);
+            GL.createCapabilities();
+            glfwSwapInterval(0); // uncapped frame rate — let the GPU run free
+
+            renderer = glGetString(GL20.GL_RENDERER);
+
+            // Fullscreen quad: two triangles over the whole clip space.
+            int vao = glGenVertexArrays();
+            glBindVertexArray(vao);
+
+            int program = createProgram();
+            glUseProgram(program);
+            int uCenter = glGetUniformLocation(program, "uCenter");
+            int uScale = glGetUniformLocation(program, "uScale");
+            int uResolution = glGetUniformLocation(program, "uResolution");
+
+            long frames = 0;
+            double startNanos = System.nanoTime();
+            double angle = 0;
+            double zoom = 1.0;
+            while (running && !glfwWindowShouldClose(window)) {
+                double t = (System.nanoTime() - startNanos) / 1_000_000_000.0;
+
+                // Slow zooming and panning so the fractal keeps changing.
+                zoom = 1.0 + t * 0.02;
+                angle = t * 0.3;
+                double cx = -0.5 + Math.sin(angle) * 0.3;
+                double cy = 0.0 + Math.cos(angle) * 0.2;
+
+                glUniform2f(uCenter, (float) cx, (float) cy);
+                glUniform1f(uScale, (float) zoom);
+                glUniform2f(uResolution, WIDTH, HEIGHT);
+
+                glClearColor(0, 0, 0, 1);
+                glClear(GL_COLOR_BUFFER_BIT);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+                glfwSwapBuffers(window);
+                glfwPollEvents();
+                frames++;
+                if ((frames & 511) == 0) {
+                    sink = frames;
                 }
-                if (!running) {
-                    timer.stop();
-                }
             }
-        };
-        timer.start();
-    }
 
-    private void showWindows() {
-        for (GpuWindow window : windows) {
-            window.stage.show();
-            window.stage.toFront();
-        }
-        if (timer != null) {
-            timer.start();
+            sink = frames;
+            glDeleteProgram(program);
+            glfwDestroyWindow(window);
+            glfwTerminate();
+        } catch (Throwable t) {
+            renderer = "";
+            startAwtFallback();
         }
     }
 
-    /** Pseudo-random texture used as the spheres' diffuse map. */
-    private WritableImage makeNoise() {
-        WritableImage image = new WritableImage(1024, 1024);
-        PixelWriter writer = image.getPixelWriter();
-        int seed = 12345;
-        for (int y = 0; y < 1024; y++) {
-            for (int x = 0; x < 1024; x++) {
-                seed = seed * 1664525 + 1013904223;
-                int r = (seed >>> 16) & 0xFF;
-                int g = (seed >>> 8) & 0xFF;
-                int b = seed & 0xFF;
-                writer.setArgb(x, y, (0xFF << 24) | (r << 16) | (g << 8) | b);
-            }
+    private static int createProgram() {
+        int vertex = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertex, VERTEX_SHADER);
+        glCompileShader(vertex);
+        checkShader(vertex);
+
+        int fragment = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragment, FRAGMENT_SHADER);
+        glCompileShader(fragment);
+        checkShader(fragment);
+
+        int program = glCreateProgram();
+        glAttachShader(program, vertex);
+        glAttachShader(program, fragment);
+        glLinkProgram(program);
+        if (glGetProgrami(program, GL_LINK_STATUS) == GL_FALSE) {
+            throw new IllegalStateException("Shader link failed");
         }
-        return image;
+        glDeleteShader(vertex);
+        glDeleteShader(fragment);
+        return program;
     }
 
-    /** Reflectively reads the active Prism pipeline: D3DPipeline / ES2Pipeline (hardware) vs SWPipeline. */
-    private static String detectPipeline() {
-        try {
-            Class<?> graphicsPipeline = Class.forName("com.sun.prism.GraphicsPipeline");
-            Object pipelineInstance = graphicsPipeline.getMethod("getPipeline").invoke(null);
-            return pipelineInstance.getClass().getSimpleName();
-        } catch (Throwable ignored) {
-            return "unknown";
-        }
-    }
-
-    /** The single render window: full-screen 3D swarm + particle blur overlay. */
-    private final class GpuWindow {
-
-        final Stage stage;
-        final Canvas canvas;
-        final Rotate swarmRotate = new Rotate(0, Rotate.Y_AXIS);
-        final Rotate swarmTilt = new Rotate(0, Rotate.X_AXIS);
-        final Rotate mainRotateX = new Rotate(0, Rotate.X_AXIS);
-        final Rotate mainRotateY = new Rotate(0, Rotate.Y_AXIS);
-        final double w;
-        final double h;
-        final double scale;
-
-        GpuWindow() {
-            Rectangle2D bounds = Screen.getPrimary().getVisualBounds();
-            w = bounds.getWidth();
-            h = bounds.getHeight();
-            scale = Math.min(w, h) / 900.0; // scene tuned for a ~900px viewport
-
-            Random random = new Random(42);
-            Group world = new Group();
-
-            // Dense swarm of small textured spheres at random positions.
-            Group swarm = new Group();
-            for (int i = 0; i < SWARM_SIZE; i++) {
-                double radius = (14 + random.nextDouble() * 55) * scale;
-                Sphere sphere = new Sphere(radius, SPHERE_DIVISIONS / 2);
-                PhongMaterial material = new PhongMaterial(
-                        Color.hsb(random.nextDouble() * 360, 0.75, 1.0));
-                material.setDiffuseMap(noise);
-                material.setSpecularColor(Color.WHITE);
-                sphere.setMaterial(material);
-                double spread = 1500 * scale;
-                sphere.setTranslateX((random.nextDouble() - 0.5) * 2 * spread);
-                sphere.setTranslateY((random.nextDouble() - 0.5) * 2 * spread);
-                sphere.setTranslateZ((random.nextDouble() - 0.5) * 2 * spread);
-                swarm.getChildren().add(sphere);
-            }
-            swarm.getTransforms().addAll(swarmRotate, swarmTilt);
-
-            // Large central sphere, heavily tessellated.
-            Sphere main = new Sphere(240 * scale, SPHERE_DIVISIONS);
-            PhongMaterial mainMaterial = new PhongMaterial(Color.WHITE);
-            mainMaterial.setDiffuseMap(noise);
-            mainMaterial.setSpecularColor(Color.WHITE);
-            main.setMaterial(mainMaterial);
-            main.getTransforms().addAll(mainRotateX, mainRotateY);
-
-            // Four coloured lights sweeping the scene for per-pixel shading.
-            PointLight[] lights = new PointLight[4];
-            Color[] lightColors = {Color.WHITE, Color.PALEGOLDENROD, Color.DODGERBLUE, Color.HOTPINK};
-            for (int i = 0; i < lights.length; i++) {
-                lights[i] = new PointLight(lightColors[i]);
-            }
-            lights[0].setTranslateX(1500 * scale);
-            lights[0].setTranslateY(800 * scale);
-            lights[0].setTranslateZ(1600 * scale);
-            lights[1].setTranslateX(-1500 * scale);
-            lights[1].setTranslateY(-800 * scale);
-            lights[1].setTranslateZ(-1400 * scale);
-            lights[2].setTranslateX(0);
-            lights[2].setTranslateY(-1400 * scale);
-            lights[2].setTranslateZ(600 * scale);
-            lights[3].setTranslateX(0);
-            lights[3].setTranslateY(1400 * scale);
-            lights[3].setTranslateZ(-600 * scale);
-
-            world.getChildren().addAll(main, swarm);
-            world.getChildren().addAll(lights);
-
-            PerspectiveCamera camera = new PerspectiveCamera(true);
-            camera.setTranslateZ(-(2600 * scale));
-            camera.setFieldOfView(55);
-            SubScene subScene = new SubScene(world, w, h, true, SceneAntialiasing.BALANCED);
-            subScene.setCamera(camera);
-
-            // Particle overlay: thousands of fine dots, re-blurred every frame.
-            canvas = new Canvas(w, h);
-            Group overlay = new Group(canvas);
-            overlay.setEffect(new BoxBlur(10, 10, 3));
-
-            StackPane root = new StackPane(subScene, overlay);
-            Scene scene = new Scene(root, w, h, true);
-            scene.setFill(Color.TRANSPARENT);
-
-            stage = new Stage();
-            stage.setTitle("UltraMonitor GPU Stress");
-            stage.setScene(scene);
-            stage.setMinWidth(640);
-            stage.setMinHeight(480);
-            // Fill the whole screen — maximum resolution, maximum fragment work.
-            stage.setMaximized(true);
-        }
-
-        void render(double t) {
-            swarmRotate.setAngle((t * 30) % 360);
-            swarmTilt.setAngle(Math.sin(t * 0.5) * 20);
-            mainRotateX.setAngle((t * 55) % 360);
-            mainRotateY.setAngle((t * 37) % 360);
-
-            GraphicsContext gc = canvas.getGraphicsContext2D();
-            gc.clearRect(0, 0, w, h);
-            // Thousands of fine translucent particles — dense fragment work.
-            double spin = (t * 60) % 360;
-            for (int i = 0; i < PARTICLES; i++) {
-                double px = ((i * 2654435761L) & 0xFFFFF) % (long) w;
-                double py = ((i * 40503L) & 0xFFFFF) % (long) h;
-                double r = 1.2 + (i % 5) * 0.7;
-                gc.setFill(Color.hsb((t * 40 + i * 0.7) % 360, 0.9, 1.0, 0.35));
-                gc.fillOval(px, py + Math.sin(t + i) * 8, r, r);
-            }
-            // A few large translucent rings sweeping across — extra fill-rate.
-            gc.setGlobalAlpha(0.12);
-            gc.setFill(Color.hsb(spin, 0.9, 1.0));
-            gc.fillOval(w / 2 - 600, h / 2 - 600 + Math.sin(t) * 200, 1200, 1200);
-            gc.setGlobalAlpha(0.06);
-            gc.setFill(Color.hsb((spin + 180) % 360, 0.9, 1.0));
-            gc.fillOval(w / 2 - 900, h / 2 - 900 + Math.cos(t) * 200, 1800, 1800);
-            gc.setGlobalAlpha(1.0);
+    private static void checkShader(int shader) {
+        if (glGetShaderi(shader, GL_COMPILE_STATUS) == GL_FALSE) {
+            throw new IllegalStateException("Shader compile failed: " + glGetShaderInfoLog(shader));
         }
     }
 
@@ -353,7 +288,7 @@ public final class GpuStress implements StressTest {
             Thread thread = new Thread(this::awtRenderLoop, "ultramonitor-gpu-" + i);
             thread.setDaemon(true);
             thread.start();
-            awtWorkers.add(thread);
+            workers.add(thread);
         }
     }
 
