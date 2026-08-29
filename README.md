@@ -4,6 +4,12 @@
 
 **A portable desktop utility for monitoring your hardware sensors and stress testing your system.**
 
+---
+
+### 📄 Organization Docs
+
+[![Guide](https://img.shields.io/badge/Guide-rizer001--Development-00AEFF)](https://github.com/rizer001-Development/.github/blob/main/GUIDE.md) · [![Contributing](https://img.shields.io/badge/Contributing-rizer001--Development-4CAF50)](https://github.com/rizer001-Development/.github/blob/main/CONTRIBUTING.md) · [![Security](https://img.shields.io/badge/Security-rizer001--Development-D9534F)](https://github.com/rizer001-Development/.github/blob/main/SECURITY.md) · [![Code of Conduct](https://img.shields.io/badge/Code%20of%20Conduct-rizer001--Development-5BC0DE)](https://github.com/rizer001-Development/.github/blob/main/CODE_OF_CONDUCT.md)
+
 UltraMonitor shows real-time readings from your CPU, memory, disks and network, and can put
 your system under load with CPU / RAM / disk / GPU stress tests to check stability and cooling.
 Built with **Java 21+** (compiled on Java 25), **JavaFX**, **LWJGL/OpenGL** and **OSHI** —
