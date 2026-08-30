@@ -96,8 +96,12 @@ public final class GpuStress implements StressTest {
         LIGHT("Light", 128, 1280, 720, 3, 48),
         /** Typical load: a solid, clearly measurable burn. */
         MEDIUM("Medium", 256, 1600, 900, 7, 24),
-        /** Maximum load: everything the GPU can throw at it. */
-        INTENSE("Intense", 512, 1920, 1080, 12, 12);
+        /** Heavy load: everything the GPU can throw at it (the former maximum). */
+        INTENSE("Intense", 512, 1920, 1080, 12, 12),
+        /** Very heavy: double the iterations at 2K — far beyond Intense. */
+        EXTREME("Extreme", 1024, 2560, 1440, 18, 8),
+        /** Maximum possible: 4K quad with the deepest fractal — absolute burn. */
+        MELTDOWN("Meltdown", 2048, 3840, 2160, 24, 5);
 
         final String label;
         final int iterations;

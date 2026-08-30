@@ -84,14 +84,17 @@ class StressEngineTest {
 
     @Test
     void gpuStressLevelsScaleWorkload() {
-        // Each level carries its own intensity parameters; a lighter level must be
+        // Each level carries its own intensity parameters; lighter levels must be
         // configured with strictly less per-pixel work and a smaller target res.
-        GpuStress.Level light = GpuStress.Level.LIGHT;
-        GpuStress.Level medium = GpuStress.Level.MEDIUM;
-        GpuStress.Level intense = GpuStress.Level.INTENSE;
-        assertTrue(light.iterations < medium.iterations);
-        assertTrue(medium.iterations < intense.iterations);
+        GpuStress.Level[] levels = GpuStress.Level.values();
+        assertEquals(5, levels.length, "expected Light/Medium/Intense/Extreme/Meltdown");
+        for (int i = 1; i < levels.length; i++) {
+            assertTrue(levels[i - 1].iterations < levels[i].iterations,
+                    levels[i - 1] + " must be lighter than " + levels[i]);
+        }
         // Levels apply when constructing a test.
+        GpuStress.Level light = levels[0];
+        GpuStress.Level medium = levels[1];
         assertEquals(light.iterations, new GpuStress(light).level().iterations);
         assertEquals(medium, new GpuStress(medium).level());
     }

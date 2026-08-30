@@ -45,12 +45,13 @@ no installation required, just a single jar + launcher.
   - *GPU* — a true GPU burn via **OpenGL (LWJGL)**: a fullscreen window draws a fullscreen
     quad whose fragment shader computes the **Mandelbrot set** with vsync disabled
     (`glfwSwapInterval(0)`) — hundreds of millions of fragment operations per frame, so the
-    GPU renders as fast as the hardware allows. A **Light / Medium / Intense** selector scales
-    the per-pixel iterations and render resolution (e.g. Intense = 512 iterations at
-    1920×1080), so you can pick a gentle warm-up or maximum load. The live status shows the
-    OpenGL device (e.g. `NVIDIA GeForce RTX 3060`) and the chosen level, proving a real GPU is
-    being hammered. Falls back to CPU-only AWT rendering (also level-scaled) in headless
-    environments.
+    GPU renders as fast as the hardware allows. A **five-level selector** (Light, Medium,
+    Intense, Extreme, Meltdown) scales the per-pixel iterations and render resolution — from
+    a gentle 128-iteration warm-up at 720p right up to a 2048-iteration 4K burn (Meltdown) —
+    so you can pick anything from a quiet test to the absolute maximum load. The live status
+    shows the OpenGL device (e.g. `NVIDIA GeForce RTX 3060`) and the chosen level, proving a
+    real GPU is being hammered. Falls back to CPU-only AWT rendering (also level-scaled) in
+    headless environments.
   - Optional duration in seconds (empty = run until stopped manually; max 86,400 s),
     **Start / Stop** buttons, live CPU load, RAM load and temperature gauges, a progress bar and
     **automatic stop at 90 °C**.
@@ -195,7 +196,7 @@ Unit tests live in `src/test/java/com/ultramonitor/`.
 ## Roadmap
 
 - [x] Live sensors (all sensors + full system info, two tabs)
-- [x] CPU / RAM / disk / GPU stress tests with auto-protection — see [STRESS_TEST_PLAN.md](STRESS_TEST_PLAN.md)
+- [x] CPU / RAM / disk — see [STRESS_TEST_PLAN.md](STRESS_TEST_PLAN.md)
 - [ ] Charts & history graphs
 - [x] Stress test CSV report export
 

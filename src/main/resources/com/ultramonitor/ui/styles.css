@@ -611,6 +611,79 @@
     -fx-tick-label-fill: -fx-um-faint;
 }
 
+/* ---------- GPU level ComboBox -------------------------------------- */
+.stress-gpu-level {
+    -fx-background-color: -fx-um-surface;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-um-border;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 0 6;
+    -fx-cursor: hand;
+}
+
+.stress-gpu-level:hover {
+    -fx-border-color: -fx-um-muted;
+}
+
+.stress-gpu-level:focused {
+    -fx-border-color: -fx-um-accent;
+    -fx-effect: dropshadow(gaussian, rgba(45, 212, 191, 0.25), 10, 0.2, 0, 0);
+}
+
+.stress-gpu-level:disabled {
+    -fx-border-color: -fx-um-border;
+    -fx-opacity: 0.55;
+}
+
+.stress-gpu-level .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-um-text;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: 600;
+    -fx-padding: 5 6;
+}
+
+.stress-gpu-level .arrow-button {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0 4;
+}
+
+.stress-gpu-level .arrow-button .arrow {
+    -fx-background-color: -fx-um-muted;
+}
+
+.stress-gpu-level .list-cell {
+    -fx-background-color: transparent;
+}
+
+/* Dropdown popup (single combo in the app — style all popups dark). */
+.combo-box-popup .list-view {
+    -fx-background-color: -fx-um-surface-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-um-border;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 24, 0.25, 0, 8);
+}
+
+.combo-box-popup .list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-um-text;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: 600;
+    -fx-padding: 7 12;
+}
+
+.combo-box-popup .list-view .list-cell:hover,
+.combo-box-popup .list-view .list-cell:selected {
+    -fx-background-color: rgba(45, 212, 191, 0.14);
+    -fx-text-fill: #5eead4;
+}
+
 .btn-danger {
     -fx-background-color: linear-gradient(to right, #dc2626, #b91c1c);
     -fx-text-fill: white;
