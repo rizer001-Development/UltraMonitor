@@ -10,8 +10,11 @@ import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import com.ultramonitor.config.AppConfig;
 import javafx.util.Duration;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,9 +47,34 @@ public final class Theme {
         }
     }
 
-    /** Loads the bundled UltraMonitor icon at every size JavaFX/Windows uses. */
+    /**
+     * The custom icon file loaded next to the app (see {@link AppConfig#appDir()}).
+     * Placing a file here overrides the bundled icon so users can brand the app
+     * without rebuilding. Square PNG with transparency.
+     */
+    public static final String EXTERNAL_ICON = "app-icon.png";
+
+    /**
+     * Loads the app icon. If {@code app-icon.png} exists next to the jar (or in
+     * the portables folder) it is used and overrides the bundled sizes, so the
+     * user can drop in their own icon without a rebuild.
+     */
     public static Image[] appIcons() {
         List<Image> images = new ArrayList<>();
+
+        Path external = AppConfig.appDir().resolve(EXTERNAL_ICON);
+        if (Files.isReadable(external)) {
+            try {
+                // The whole image is used; JavaFX derives the smaller sizes.
+                images.add(new Image(external.toUri().toString()));
+                return images.toArray(new Image[0]);
+            } catch (Throwable ignored) {
+                // Malformed custom file — fall through to the bundled icon.
+                images.clear();
+            }
+        }
+
+        // Bundled fallback at every size JavaFX/Windows uses.
         for (int size : new int[] {16, 32, 48, 64, 128, 256}) {
             var url = Theme.class.getResource("icons/app-icon-" + size + ".png");
             if (url != null) {

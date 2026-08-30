@@ -345,12 +345,15 @@ public final class GpuStress implements StressTest {
     /**
      * Sets the UltraMonitor icon on the GLFW window (taskbar/alt-tab) so the
      * stress window doesn't show the generic Java icon. Cosmetic; best effort.
+     * An external {@code app-icon.png} next to the jar overrides the bundled one.
      */
     private static void setWindowIcon(long window) {
         try {
-            java.awt.image.BufferedImage img =
-                    javax.imageio.ImageIO.read(GpuStress.class.getResourceAsStream(
-                            "/com/ultramonitor/ui/icons/app-icon-128.png"));
+            java.awt.image.BufferedImage img = externalIcon();
+            if (img == null) {
+                img = javax.imageio.ImageIO.read(GpuStress.class.getResourceAsStream(
+                        "/com/ultramonitor/ui/icons/app-icon-128.png"));
+            }
             if (img == null) {
                 return;
             }
@@ -375,6 +378,20 @@ public final class GpuStress implements StressTest {
         } catch (Throwable ignored) {
             // The icon is purely cosmetic; never break the stress test for it.
         }
+    }
+
+    /** Looks up the optional custom icon file next to the jar (256px). */
+    private static java.awt.image.BufferedImage externalIcon() {
+        try {
+            java.nio.file.Path file = com.ultramonitor.config.AppConfig.appDir()
+                    .resolve(com.ultramonitor.ui.Theme.EXTERNAL_ICON);
+            if (java.nio.file.Files.isReadable(file)) {
+                return javax.imageio.ImageIO.read(file.toFile());
+            }
+        } catch (Throwable ignored) {
+            // fall back to the bundled icon
+        }
+        return null;
     }
 
     /** Six 2D vertices forming the fullscreen quad (two triangles, CCW). */

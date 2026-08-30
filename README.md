@@ -150,6 +150,15 @@ if `--report` was given, writes the CSV next to the jar.
 
 ---
 
+## Custom icon
+
+To brand the app with your own icon, drop a **square PNG (`app-icon.png`) next to the jar**
+(beside `UltraMonitor.jar` in the portable `dist/`). It overrides the bundled icon on every
+window — the menu, the Sensor and Stress Test windows and the taskbar — without rebuilding.
+PNG must have transparency and a square aspect; **256×256 (or 512)** is recommended for a
+crisp result at all sizes. For a developer run (`gradlew run`) the file goes into
+`~/.ultramonitor/app-icon.png`.
+
 ## Configuration
 
 `config.json` is stored next to the jar (falls back to `~/.ultramonitor` when running from a
