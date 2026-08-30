@@ -76,20 +76,50 @@ import static org.lwjgl.opengl.GL30.glGenVertexArrays;
 
 /**
  * Pushes the GPU through OpenGL (LWJGL): a fullscreen quad rendered with a
- * heavy fragment shader computing the Mandelbrot set at 512 iterations per
- * pixel. That is hundreds of millions of floating-point fragment operations
- * per frame — a genuine, measurable GPU workload (the same technique used by
- * GPU-burn tools). Vsync is disabled so the GPU renders as fast as it can.
+ * heavy fragment shader computing the Mandelbrot set. That is hundreds of
+ * millions of floating-point fragment operations per frame — a genuine,
+ * measurable GPU workload (the same technique used by GPU-burn tools). Vsync
+ * is disabled so the GPU renders as fast as it can.
  *
- * <p>In headless environments it falls back to the CPU-only AWT renderer. The
- * OpenGL renderer string (e.g. "NVIDIA GeForce RTX 3060 / PCIe / SSE2") is
- * reported by {@link #status()}, proving a real GPU is being hammered.</p>
+ * <p>The load is scaled by a {@link Level}: LIGHT / MEDIUM / INTENSE trade the
+ * per-pixel fractal iterations and render resolution, so you can pick gentle,
+ * typical or maximum stress. In headless environments it falls back to the
+ * CPU-only AWT renderer (also scaled by the level). The OpenGL renderer string
+ * (e.g. "NVIDIA GeForce RTX 3060 / PCIe / SSE2") is reported by
+ * {@link #status()}, proving a real GPU is being hammered.</p>
  */
 public final class GpuStress implements StressTest {
 
-    private static final int FRACTAL_ITERATIONS = 512;
-    private static final int WIDTH = 1920;
-    private static final int HEIGHT = 1080;
+    /** How hard to push the GPU. */
+    public enum Level {
+        /** Gentle load: enough work to warm up the card without noise. */
+        LIGHT("Light", 128, 1280, 720, 3, 48),
+        /** Typical load: a solid, clearly measurable burn. */
+        MEDIUM("Medium", 256, 1600, 900, 7, 24),
+        /** Maximum load: everything the GPU can throw at it. */
+        INTENSE("Intense", 512, 1920, 1080, 12, 12);
+
+        final String label;
+        final int iterations;
+        final int width;
+        final int height;
+        final int awtShapes;
+        final int blurEvery;
+
+        Level(String label, int iterations, int width, int height, int awtShapes, int blurEvery) {
+            this.label = label;
+            this.iterations = iterations;
+            this.width = width;
+            this.height = height;
+            this.awtShapes = awtShapes;
+            this.blurEvery = blurEvery;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
 
     private static final String VERTEX_SHADER = """
             #version 330 core
@@ -129,7 +159,14 @@ public final class GpuStress implements StressTest {
                 float b = 0.5 + 0.5 * cos(3.0 + m * 6.28 + 4.2);
                 fragColor = vec4(r, g, b, 1.0);
             }
-            """.formatted(FRACTAL_ITERATIONS, FRACTAL_ITERATIONS);
+            """;
+
+    private final Level level;
+    private final int iterations;
+    private final int width;
+    private final int height;
+    private final int awtShapes;
+    private final int blurEvery;
 
     // Shared across instances so a second run reuses nothing stale; the GLFW
     // window and render loop are owned by a dedicated worker thread.
@@ -137,6 +174,26 @@ public final class GpuStress implements StressTest {
     private static volatile boolean running;
     private static volatile long sink;
     private static volatile String renderer = "";
+
+    /** Constructs a maximum-intensity stress test (backwards compatible). */
+    public GpuStress() {
+        this(Level.INTENSE);
+    }
+
+    public GpuStress(Level level) {
+        Level actual = level == null ? Level.INTENSE : level;
+        this.level = actual;
+        this.iterations = actual.iterations;
+        this.width = actual.width;
+        this.height = actual.height;
+        this.awtShapes = actual.awtShapes;
+        this.blurEvery = actual.blurEvery;
+    }
+
+    /** The intensity level this test is running at. */
+    public Level level() {
+        return level;
+    }
 
     @Override
     public String name() {
@@ -146,9 +203,10 @@ public final class GpuStress implements StressTest {
     @Override
     public String status() {
         if (renderer.isBlank()) {
-            return "OpenGL " + (GraphicsEnvironment.isHeadless() ? "fallback (headless)" : "unavailable");
+            return "OpenGL " + (GraphicsEnvironment.isHeadless() ? "fallback (headless)" : "unavailable")
+                    + " · " + level.label;
         }
-        return "OpenGL · " + renderer;
+        return "OpenGL · " + renderer + " · " + level.label;
     }
 
     @Override
@@ -179,6 +237,10 @@ public final class GpuStress implements StressTest {
         workers.clear();
     }
 
+    private String fragmentShader() {
+        return FRAGMENT_SHADER.formatted(iterations, iterations);
+    }
+
     // -------------------------------------------------------- OpenGL path --
 
     private void startGl() {
@@ -202,7 +264,8 @@ public final class GpuStress implements StressTest {
             glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
             glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-            long window = glfwCreateWindow(WIDTH, HEIGHT, "UltraMonitor GPU Stress", 0, 0);
+            long window = glfwCreateWindow(width, height,
+                    "UltraMonitor GPU Stress (" + level.label + ")", 0, 0);
             if (window == 0) {
                 glfwTerminate();
                 startAwtFallback();
@@ -248,7 +311,7 @@ public final class GpuStress implements StressTest {
 
                 glUniform2f(uCenter, (float) cx, (float) cy);
                 glUniform1f(uScale, (float) zoom);
-                glUniform2f(uResolution, WIDTH, HEIGHT);
+                glUniform2f(uResolution, width, height);
 
                 glClearColor(0, 0, 0, 1);
                 glClear(GL_COLOR_BUFFER_BIT);
@@ -284,14 +347,14 @@ public final class GpuStress implements StressTest {
         return data;
     }
 
-    private static int createProgram() {
+    private int createProgram() {
         int vertex = glCreateShader(GL_VERTEX_SHADER);
         glShaderSource(vertex, VERTEX_SHADER);
         glCompileShader(vertex);
         checkShader(vertex);
 
         int fragment = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fragment, FRAGMENT_SHADER);
+        glShaderSource(fragment, fragmentShader());
         glCompileShader(fragment);
         checkShader(fragment);
 
@@ -353,7 +416,7 @@ public final class GpuStress implements StressTest {
 
                 AffineTransform saved = graphics.getTransform();
                 graphics.rotate(angle, size / 2.0, size / 2.0);
-                for (int i = 0; i < 8; i++) {
+                for (int i = 0; i < awtShapes; i++) {
                     float h = (hue + i * 0.05f) % 1f;
                     graphics.setPaint(new GradientPaint(0, 0,
                             java.awt.Color.getHSBColor(h, 1f, 0.9f), size, size, java.awt.Color.BLACK));
@@ -372,7 +435,7 @@ public final class GpuStress implements StressTest {
                 og.dispose();
                 graphics.drawImage(overlay, 0, 0, null);
 
-                if ((frames & 31) == 0) {
+                if ((frames % blurEvery) == 0) {
                     blur.filter(image, blurred);
                     graphics.drawImage(blurred, 0, 0, null);
                 }
@@ -383,4 +446,4 @@ public final class GpuStress implements StressTest {
         }
         sink = frames;
     }
-}
+}

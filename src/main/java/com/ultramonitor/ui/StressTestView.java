@@ -72,6 +72,8 @@ public final class StressTestView {
     private final Slider ramPercentSlider = new Slider(10, 80, 50);
     private final Slider diskMbSlider = new Slider(256, 4096, 512);
 
+    private final javafx.scene.control.ComboBox<GpuStress.Level> gpuLevelBox = new javafx.scene.control.ComboBox<>();
+
     private final Label cpuLoadLabel = new Label("—");
     private final Label ramLoadLabel = new Label("—");
     private final Label tempLabel = new Label("—");
@@ -175,8 +177,40 @@ public final class StressTestView {
     }
 
     private Pane gpuCard() {
-        return testCard("GPU", "Rendering pipeline stress (accelerated graphics)",
-                GPU_ICON, gpuSwitch, null, null);
+        // Level selector: Light / Medium / Intense. Only usable while selected.
+        gpuLevelBox.getItems().setAll(GpuStress.Level.values());
+        gpuLevelBox.setValue(GpuStress.Level.MEDIUM);
+        gpuLevelBox.getStyleClass().add("stress-gpu-level");
+        gpuLevelBox.setMaxWidth(280);
+        gpuLevelBox.setPrefWidth(220);
+        gpuLevelBox.disableProperty().bind(gpuSwitch.selectedProperty().not());
+
+        HBox card = new HBox(14);
+        card.getStyleClass().add("card");
+        card.setAlignment(Pos.CENTER_LEFT);
+
+        StackPane iconBox = new StackPane();
+        iconBox.getStyleClass().add("card-icon");
+        SVGPath icon = new SVGPath();
+        icon.setContent(GPU_ICON);
+        icon.getStyleClass().add("card-svg");
+        iconBox.getChildren().add(icon);
+
+        VBox texts = new VBox(3);
+        Label titleLabel = new Label("GPU");
+        titleLabel.getStyleClass().add("card-title");
+        Label subtitleLabel = new Label("Rendering pipeline stress (accelerated graphics)");
+        subtitleLabel.getStyleClass().add("card-subtitle");
+        Label hintLabel = new Label("Intensity:");
+        hintLabel.getStyleClass().add("param-value");
+        HBox levelRow = new HBox(10);
+        levelRow.setAlignment(Pos.CENTER_LEFT);
+        levelRow.getChildren().addAll(hintLabel, gpuLevelBox);
+        texts.getChildren().addAll(titleLabel, subtitleLabel, levelRow);
+
+        HBox.setHgrow(texts, Priority.ALWAYS);
+        card.getChildren().addAll(iconBox, texts, gpuSwitch);
+        return card;
     }
 
     private Pane testCard(String title, String subtitle, String iconPath,
@@ -335,7 +369,8 @@ public final class StressTestView {
             tests.add(new DiskStress((long) Math.round(diskMbSlider.getValue())));
         }
         if (gpuSwitch.isSelected()) {
-            tests.add(new GpuStress());
+            GpuStress.Level level = gpuLevelBox.getValue();
+            tests.add(new GpuStress(level == null ? GpuStress.Level.MEDIUM : level));
         }
         if (tests.isEmpty()) {
             statusLabel.setText("Select at least one test to run.");

@@ -42,12 +42,15 @@ no installation required, just a single jar + launcher.
     threads to saturate memory bandwidth (slider: % of available RAM);
   - *Disk* — parallel sequential writes/reads (with periodic fsync) plus random 64 KB I/O on a
     temporary file (slider: file size in MB);
-  - *GPU* — a true GPU burn via **OpenGL (LWJGL)**: a fullscreen (1920×1080) window draws a
-    fullscreen quad whose fragment shader computes the **Mandelbrot set at 512 iterations per
-    pixel** with vsync disabled (`glfwSwapInterval(0)`) — hundreds of millions of fragment
-    operations per frame, so the GPU renders as fast as the hardware allows. The live status
-    shows the OpenGL device (e.g. `NVIDIA GeForce RTX 3060`), proving a real GPU is being
-    hammered. Falls back to CPU-only AWT rendering only in headless environments.
+  - *GPU* — a true GPU burn via **OpenGL (LWJGL)**: a fullscreen window draws a fullscreen
+    quad whose fragment shader computes the **Mandelbrot set** with vsync disabled
+    (`glfwSwapInterval(0)`) — hundreds of millions of fragment operations per frame, so the
+    GPU renders as fast as the hardware allows. A **Light / Medium / Intense** selector scales
+    the per-pixel iterations and render resolution (e.g. Intense = 512 iterations at
+    1920×1080), so you can pick a gentle warm-up or maximum load. The live status shows the
+    OpenGL device (e.g. `NVIDIA GeForce RTX 3060`) and the chosen level, proving a real GPU is
+    being hammered. Falls back to CPU-only AWT rendering (also level-scaled) in headless
+    environments.
   - Optional duration in seconds (empty = run until stopped manually; max 86,400 s),
     **Start / Stop** buttons, live CPU load, RAM load and temperature gauges, a progress bar and
     **automatic stop at 90 °C**.

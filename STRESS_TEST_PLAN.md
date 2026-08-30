@@ -25,6 +25,7 @@ Stress Test window
  │    CPU      — threads selector (Auto = all logical cores)
  │    Memory   — size selector (Auto = e.g. 50% of free RAM)
  │    Disk     — temp file size selector (e.g. 512 MB / 1 GB)
+ │    GPU      — intensity selector (Light / Medium / Intense)
  ├─ Duration:  [___] seconds   (empty = run until stopped manually)
  ├─ Safety:    Auto-stop above [90] °C  (editable, 50–100)
  ├─ [▶ Start]  [■ Stop]

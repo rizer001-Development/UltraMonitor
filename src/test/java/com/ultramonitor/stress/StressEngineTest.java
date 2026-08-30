@@ -73,11 +73,27 @@ class StressEngineTest {
     @Test
     void gpuStressRunsAndStops() {
         GpuStress gpu = new GpuStress();
+        assertFalse(gpu.isRunning());
+        assertEquals(GpuStress.Level.INTENSE, gpu.level());
         gpu.start();
         sleep(300);
         assertTrue(gpu.isRunning());
         gpu.stop();
         assertFalse(gpu.isRunning());
+    }
+
+    @Test
+    void gpuStressLevelsScaleWorkload() {
+        // Each level carries its own intensity parameters; a lighter level must be
+        // configured with strictly less per-pixel work and a smaller target res.
+        GpuStress.Level light = GpuStress.Level.LIGHT;
+        GpuStress.Level medium = GpuStress.Level.MEDIUM;
+        GpuStress.Level intense = GpuStress.Level.INTENSE;
+        assertTrue(light.iterations < medium.iterations);
+        assertTrue(medium.iterations < intense.iterations);
+        // Levels apply when constructing a test.
+        assertEquals(light.iterations, new GpuStress(light).level().iterations);
+        assertEquals(medium, new GpuStress(medium).level());
     }
 
     @Test
