@@ -1,5 +1,6 @@
 package com.ultramonitor.stress;
 
+import org.lwjgl.glfw.GLFWImage;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.system.MemoryStack;
@@ -32,6 +33,7 @@ import static org.lwjgl.glfw.GLFW.glfwGetVideoMode;
 import static org.lwjgl.glfw.GLFW.glfwInit;
 import static org.lwjgl.glfw.GLFW.glfwMakeContextCurrent;
 import static org.lwjgl.glfw.GLFW.glfwPollEvents;
+import static org.lwjgl.glfw.GLFW.glfwSetWindowIcon;
 import static org.lwjgl.glfw.GLFW.glfwSwapBuffers;
 import static org.lwjgl.glfw.GLFW.glfwSwapInterval;
 import static org.lwjgl.glfw.GLFW.glfwTerminate;
@@ -279,6 +281,8 @@ public final class GpuStress implements StressTest {
             GL.createCapabilities();
             glfwSwapInterval(0); // uncapped frame rate — let the GPU run free
 
+            setWindowIcon(window);
+
             renderer = glGetString(GL20.GL_RENDERER);
 
             // Fullscreen quad: two triangles over the whole clip space.
@@ -335,6 +339,41 @@ public final class GpuStress implements StressTest {
         } catch (Throwable t) {
             renderer = "";
             startAwtFallback();
+        }
+    }
+
+    /**
+     * Sets the UltraMonitor icon on the GLFW window (taskbar/alt-tab) so the
+     * stress window doesn't show the generic Java icon. Cosmetic; best effort.
+     */
+    private static void setWindowIcon(long window) {
+        try {
+            java.awt.image.BufferedImage img =
+                    javax.imageio.ImageIO.read(GpuStress.class.getResourceAsStream(
+                            "/com/ultramonitor/ui/icons/app-icon-128.png"));
+            if (img == null) {
+                return;
+            }
+            int w = img.getWidth();
+            int h = img.getHeight();
+            java.nio.ByteBuffer pixels =
+                    java.nio.ByteBuffer.allocateDirect(w * h * 4).order(java.nio.ByteOrder.nativeOrder());
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int argb = img.getRGB(x, y);
+                    pixels.put((byte) ((argb >> 16) & 0xFF)); // R
+                    pixels.put((byte) ((argb >> 8) & 0xFF));  // G
+                    pixels.put((byte) (argb & 0xFF));         // B
+                    pixels.put((byte) ((argb >> 24) & 0xFF)); // A
+                }
+            }
+            pixels.flip();
+            try (GLFWImage.Buffer buffer = GLFWImage.malloc(1)) {
+                buffer.width(w).height(h).pixels(pixels);
+                glfwSetWindowIcon(window, buffer);
+            }
+        } catch (Throwable ignored) {
+            // The icon is purely cosmetic; never break the stress test for it.
         }
     }
 

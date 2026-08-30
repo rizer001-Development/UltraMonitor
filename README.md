@@ -56,6 +56,7 @@ no installation required, just a single jar + launcher.
     **Start / Stop** buttons, live CPU load, RAM load and temperature gauges, a progress bar and
     **automatic stop at 90 °C**.
 - **Dark UI** — custom frameless windows, animated toggles and a live "LIVE" indicator.
+- **Custom app icon** — the menu, Sensors and Stress Test windows (plus the GLFW GPU stress window) carry a bundled UltraMonitor icon instead of the generic Java icon.
 - **Portable** — a single jar + launcher, no installation.
 - **Headless self-test** for CI / smoke tests: `java -jar UltraMonitor.jar --selftest`.
 - **Stress-test CSV report** — after a run, click **Report** to export the recorded samples
